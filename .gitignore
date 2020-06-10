@@ -1,3 +1,7 @@
+# Other project directories
+xml_examples/
+xml_examples/**
+
 # Prerequisites
 *.d
 
@@ -30,3 +34,4 @@
 *.exe
 *.out
 *.app
+dmxplayer
