@@ -23,18 +23,18 @@
 //////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////
-// Stage Lab SysQ DMX Cue class v.1 header file
+// Stage Lab Cuems DMX Cue class v.1 header file
 //////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////
 
-#ifndef DMXCUE_V1_CLASS_H
-#define DMXCUE_V1_CLASS_H
+#ifndef DMXCUE_V1_H
+#define DMXCUE_V1_H
 
 #include <string>
-#include "dmxcue_v0_class.h"
-#include "sysq_errors.h"
-#include "sysqlogger_class/sysqlogger_class.h"
+#include "dmxcue_v0.h"
+#include "cuems_errors.h"
+#include "cuemslogger/cuemslogger.h"
 #include "ola/DmxBuffer.h"
 
 using namespace std;
@@ -90,4 +90,4 @@ class DmxCue_v1 : public DmxCue_v0
         void getUniverseFromXml( XMLSize_t index, DOMNodeList* universeNodeList );
 };
 
-#endif // DMXCUE_V1_CLASS_H
+#endif // DMXCUE_V1_H

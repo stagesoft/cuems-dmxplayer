@@ -1,8 +1,8 @@
 /* LICENSE TEXT
 
-    audioplayer for linux based using RtAudio and RtMidi libraries to
-    process audio and receive MTC sync. It also uses oscpack to receive
-    some configurations through osc commands.
+    dmxplayer for linux based on OLA, RtMidi and oscpack libraries to 
+    play DMX cues with MTC sync. It also receives OSC commands to do
+    some configurations dynamically.
     Copyright (C) 2020  Stage Lab & bTactic.
 
     This program is free software: you can redistribute it and/or modify
@@ -23,21 +23,49 @@
 //////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////
-// Stage Lab SysQ return error codes for SysQ apps
+// Stage Lab Cuems DMX Cue class v.0 header file
 //////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////
 
-#ifndef SYSQ_ERRORS_H
-#define SYSQ_ERRORS_H
+#ifndef DMXCUE_V0_H
+#define DMXCUE_V0_H
 
-#define SYSQ_EXIT_OK                    0               // Success
-#define SYSQ_EXIT_FAILURE               -1              // Generic error
-#define SYSQ_EXIT_WRONG_PARAMETERS      -2
-#define SYSQ_EXIT_WRONG_DATA_FILE       -3
-#define SYSQ_EXIT_AUDIO_DEVICE_ERR      -4              // Perhaps jack not running
-#define SYSQ_EXIT_FAILED_OLA_SETUP      -5              // OLA setup failed, daemon running?
-#define SYSQ_EXIT_FAILED_OLA_SEL_SERV   -6              // OLA select server failed, daemon running?
-#define SYSQ_EXIT_FAILED_XML_INIT       -7              // XML parser initializer failed
+#include <string>
+#include <vector>
+#include <iostream>
+#include <xercesc/dom/DOM.hpp>
+#include <xercesc/framework/StdOutFormatTarget.hpp>
+#include <xercesc/parsers/XercesDOMParser.hpp>
+#include <xercesc/sax/HandlerBase.hpp>
+#include <xercesc/util/PlatformUtils.hpp>
+#include <xercesc/util/XMLString.hpp>
 
-#endif // SYSQ_ERRORS_H
+
+using namespace std;
+using namespace xercesc;
+
+typedef struct {
+} DmxChannel_v0;
+
+typedef struct {
+} DmxUniverse_v0;
+
+typedef struct {
+} DmxScene_v0;
+
+class DmxCue_v0 
+{
+    public:
+        DmxCue_v0( string path ) : xmlPath(path) { };
+        // virtual ~DmxCue_v0( void ) = 0;
+
+    private:
+
+    protected:
+        std::string xmlPath;
+        // Pure virtual function to be implemented on inherintance
+        virtual void getCueFromXml( void ) = 0;
+};
+
+#endif // DMXCUE_V0_H

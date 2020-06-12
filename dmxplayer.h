@@ -23,12 +23,12 @@
 //////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////
-// Stage Lab SysQ DMX player class header file
+// Stage Lab Cuems DMX player class header file
 //////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////
-#ifndef DMXPLAYER_CLASS_H
-#define DMXPLAYER_CLASS_H
+#ifndef DMXPLAYER_H
+#define DMXPLAYER_H
 
 //////////////////////////////////////////////////////////
 // Preprocessor definitions
@@ -48,12 +48,12 @@
 #include <ola/Callback.h>
 #include <ola/io/SelectServer.h>
 
-#include "./mtcreceiver_class/mtcreceiver_class.h"
-#include "./oscreceiver_class/oscreceiver_class.h"
+#include "./mtcreceiver/mtcreceiver.h"
+#include "./oscreceiver/oscreceiver.h"
 
-#include "dmxcue_v1_class.h"
-#include "./sysqlogger_class/sysqlogger_class.h"
-#include "sysq_errors.h"
+#include "dmxcue_v1.h"
+#include "./cuemslogger/cuemslogger.h"
+#include "cuems_errors.h"
 
 using namespace std;
 
@@ -148,4 +148,4 @@ class DmxPlayer : public OscReceiver
 
 };
 
-#endif // DMXPLAYER_CLASS_H
+#endif // DMXPLAYER_H

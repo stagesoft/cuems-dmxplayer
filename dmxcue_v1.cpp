@@ -23,12 +23,12 @@
 //////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////
-// Stage Lab SysQ DMX Cue class v.1 source file
+// Stage Lab Cuems DMX Cue class v.1 source file
 //////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////
 
-#include "dmxcue_v1_class.h"
+#include "dmxcue_v1.h"
 
 //////////////////////////////////////////////////////////
 DmxCue_v1::DmxCue_v1( string xmlPath ): DmxCue_v0( xmlPath )
@@ -61,10 +61,10 @@ void DmxCue_v1::initParser( void )
         std::string str = "Error initializing XML platform.";
         std::cerr << str << endl;
 
-        SysQLogger::getLogger()->logError( str );
-        SysQLogger::getLogger()->logError( "Exiting with result code: " + std::to_string(SYSQ_EXIT_FAILED_XML_INIT) );
+        CuemsLogger::getLogger()->logError( str );
+        CuemsLogger::getLogger()->logError( "Exiting with result code: " + std::to_string(CUEMS_EXIT_FAILED_XML_INIT) );
 
-        exit( SYSQ_EXIT_FAILED_XML_INIT );
+        exit( CUEMS_EXIT_FAILED_XML_INIT );
     }
 
     // Set our XML parser options
@@ -97,7 +97,7 @@ void DmxCue_v1::initParser( void )
         std::string str = "XML exception, message is: " +  (string) message;
         cerr << str << endl;
 
-        SysQLogger::getLogger()->logError( str );
+        CuemsLogger::getLogger()->logError( str );
 
         XMLString::release(&message);
 
@@ -108,7 +108,7 @@ void DmxCue_v1::initParser( void )
         std::string str = "XML exception, message is: " + (string) message;
         cerr << str << endl;
 
-        SysQLogger::getLogger()->logError( str );
+        CuemsLogger::getLogger()->logError( str );
 
         XMLString::release(&message);
 
@@ -117,7 +117,7 @@ void DmxCue_v1::initParser( void )
         std::string str = "Unexpected XML DOM exception";
         cerr << str << endl;
 
-        SysQLogger::getLogger()->logError( str );
+        CuemsLogger::getLogger()->logError( str );
     }
 
 }

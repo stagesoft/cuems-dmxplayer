@@ -23,12 +23,12 @@
 //////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////
-// Stage Lab SysQ DMX player class code file
+// Stage Lab Cuems DMX player class code file
 //////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////
 
-#include "dmxplayer_class.h"
+#include "dmxplayer.h"
 
 using namespace std;
 
@@ -71,23 +71,23 @@ DmxPlayer::DmxPlayer(   int port,
 
     if (!olaClientWrapper.Setup()) {
         std::cerr << "OLA setup failed" << endl;
-        SysQLogger::getLogger()->logError("OLA setup failed!");
-        SysQLogger::getLogger()->logError( "Exiting with result code: " + std::to_string(SYSQ_EXIT_FAILED_OLA_SETUP) );
+        CuemsLogger::getLogger()->logError("OLA setup failed!");
+        CuemsLogger::getLogger()->logError( "Exiting with result code: " + std::to_string(CUEMS_EXIT_FAILED_OLA_SETUP) );
 
-        exit( SYSQ_EXIT_FAILED_OLA_SETUP );
+        exit( CUEMS_EXIT_FAILED_OLA_SETUP );
     }
 
     olaServer = olaClientWrapper.GetSelectServer();
     if ( olaServer == NULL ) {
         std::cerr << "OLA server not reached" << endl;
-        SysQLogger::getLogger()->logError("OLA server failed!");
-        SysQLogger::getLogger()->logError( "Exiting with result code: " + std::to_string(SYSQ_EXIT_FAILED_OLA_SEL_SERV) );
+        CuemsLogger::getLogger()->logError("OLA server failed!");
+        CuemsLogger::getLogger()->logError( "Exiting with result code: " + std::to_string(CUEMS_EXIT_FAILED_OLA_SEL_SERV) );
 
-        exit( SYSQ_EXIT_FAILED_OLA_SEL_SERV );
+        exit( CUEMS_EXIT_FAILED_OLA_SEL_SERV );
     }
     else {
         // Let's set a callback for each universe deailed in the scene
-        SysQLogger::getLogger()->logInfo("Setting OLA callback for " + std::to_string(dmxCue.dmxScene.universes.size()) + " universes");
+        CuemsLogger::getLogger()->logInfo("Setting OLA callback for " + std::to_string(dmxCue.dmxScene.universes.size()) + " universes");
         for ( std::vector<DmxUniverse_v1>::iterator it = dmxCue.dmxScene.universes.begin() ; it != dmxCue.dmxScene.universes.end() ; it++ ) {
             olaServer->RegisterRepeatingTimeout( 100, ola::NewCallback( &DmxPlayer::SendUniverseData, this, &(*it) ) );
         }
@@ -114,7 +114,7 @@ void DmxPlayer::ProcessMessage( const osc::ReceivedMessage& m,
             m.ArgumentStream() >> offsetOSC >> osc::EndMessage;
             offsetOSC = floor(offsetOSC);
 
-            SysQLogger::getLogger()->logInfo("OSC: new offset value " + std::to_string((long int)offsetOSC));
+            CuemsLogger::getLogger()->logInfo("OSC: new offset value " + std::to_string((long int)offsetOSC));
 
             // Offset argument in OSC command is in milliseconds
             // so we need to calculate in bytes in our file
@@ -131,7 +131,7 @@ void DmxPlayer::ProcessMessage( const osc::ReceivedMessage& m,
             m.ArgumentStream() >> waitOSC >> osc::EndMessage;
             waitOSC = floor(waitOSC);
 
-            SysQLogger::getLogger()->logInfo("OSC: new end wait value " + std::to_string((long int)waitOSC));
+            CuemsLogger::getLogger()->logInfo("OSC: new end wait value " + std::to_string((long int)waitOSC));
 
             endWaitTime = waitOSC;             // In milliseconds
         // Load
@@ -139,14 +139,14 @@ void DmxPlayer::ProcessMessage( const osc::ReceivedMessage& m,
             const char* newPath;
             m.ArgumentStream() >> newPath >> osc::EndMessage;
             // dmxCue.xmlPath = newPath;
-            SysQLogger::getLogger()->logInfo("OSC: /load command, not working yet");
+            CuemsLogger::getLogger()->logInfo("OSC: /load command, not working yet");
             // audioFile.close();
-            // SysQLogger::getLogger()->logInfo("OSC: previous file closed");
+            // CuemsLogger::getLogger()->logInfo("OSC: previous file closed");
             // audioFile.loadFile(audioPath);
-            // SysQLogger::getLogger()->logInfo("OSC: loaded new path -> " + audioPath);
+            // CuemsLogger::getLogger()->logInfo("OSC: loaded new path -> " + audioPath);
         // Play/pause
         } else if ( (string) m.AddressPattern() == (OscReceiver::oscAddress + "/play") ) {
-            SysQLogger::getLogger()->logInfo("OSC: /play command");
+            CuemsLogger::getLogger()->logInfo("OSC: /play command");
             if ( playheadControl != 0 )
                 playheadControl = 0;
             else 
@@ -155,33 +155,33 @@ void DmxPlayer::ProcessMessage( const osc::ReceivedMessage& m,
         } else if ( (string) m.AddressPattern() == (OscReceiver::oscAddress + "/stop") ) {
             // TO DO : right now is the same as play/pause... Don't know if there 
             //          will be other implementations of the command...
-            SysQLogger::getLogger()->logInfo("OSC: /stop command");
+            CuemsLogger::getLogger()->logInfo("OSC: /stop command");
             if ( playheadControl != 0 )
                 playheadControl = 0;
             else 
                 playheadControl = 1;
         // Quit
         } else if ( (string)m.AddressPattern() == (OscReceiver::oscAddress + "/quit") ) {
-            SysQLogger::getLogger()->logInfo("OSC: /quit command");
+            CuemsLogger::getLogger()->logInfo("OSC: /quit command");
             raise(SIGTERM);
         // Check
         } else if ( (string)m.AddressPattern() == (OscReceiver::oscAddress + "/check") ) {
-            SysQLogger::getLogger()->logInfo("OSC: /check command");
+            CuemsLogger::getLogger()->logInfo("OSC: /check command");
             raise(SIGUSR1);
         // Stop on lost
         } else if ( (string)m.AddressPattern() == (OscReceiver::oscAddress + "/stoponlost") ) {
-            SysQLogger::getLogger()->logInfo("OSC: /stoponlost command");
+            CuemsLogger::getLogger()->logInfo("OSC: /stoponlost command");
             stopOnMTCLost = !stopOnMTCLost;
         // In
         /*
         } else if ( (string)m.AddressPattern() == (OscReceiver::oscAddress + "/in") ) {
-            SysQLogger::getLogger()->logInfo("OSC: /in command");
+            CuemsLogger::getLogger()->logInfo("OSC: /in command");
             fading = true;
             */
         // Out
         /*
         } else if ( (string)m.AddressPattern() == (OscReceiver::oscAddress + "/out") ) {
-            SysQLogger::getLogger()->logInfo("OSC: /out command");
+            CuemsLogger::getLogger()->logInfo("OSC: /out command");
             fading = true;
             */
         }
@@ -214,12 +214,12 @@ bool DmxPlayer::SendUniverseData(DmxPlayer* dp, DmxUniverse_v1* universe) {
         // If there is MTC signal and we haven't started, check it
         if ( dp->mtcReceiver.isTimecodeRunning ) {
             if ( !dp->mtcSignalStarted ) {
-                SysQLogger::getLogger()->logInfo("MTC -> Play started");
+                CuemsLogger::getLogger()->logInfo("MTC -> Play started");
                 dp->mtcSignalStarted = true;
             }
             else {
                 if ( dp->mtcSignalLost ) {
-                    SysQLogger::getLogger()->logInfo("MTC -> Play resumed");
+                    CuemsLogger::getLogger()->logInfo("MTC -> Play resumed");
                 }
             }
 
@@ -311,7 +311,7 @@ bool DmxPlayer::SendUniverseData(DmxPlayer* dp, DmxUniverse_v1* universe) {
             if ( dp->endWaitTime == 0 ) {
                 // If there is not waiting time, we just finish
                 // and we end the stream by returning a positive value
-                SysQLogger::getLogger()->logInfo("No end wait time set, ending audioplayer");
+                CuemsLogger::getLogger()->logInfo("No end wait time set, ending audioplayer");
                 dp->olaClientWrapper.GetSelectServer()->Terminate();
                 dp->endOfPlay = true;
                 return false;
@@ -328,13 +328,13 @@ bool DmxPlayer::SendUniverseData(DmxPlayer* dp, DmxUniverse_v1* universe) {
                     else
                         str = std::to_string( dp->endWaitTime ) + " ms";
 
-                    SysQLogger::getLogger()->logInfo("Out of file boundaries, waiting " + str);
+                    CuemsLogger::getLogger()->logInfo("Out of file boundaries, waiting " + str);
                 }
 
                 long int timecodeNow = chrono::duration_cast<chrono::milliseconds>(chrono::high_resolution_clock::now().time_since_epoch()).count();
 
                 if ( ( timecodeNow - dp->endTimeStamp ) > dp->endWaitTime ) {
-                    SysQLogger::getLogger()->logInfo("Waiting time exceded, ending audioplayer");
+                    CuemsLogger::getLogger()->logInfo("Waiting time exceded, ending audioplayer");
                     dp->olaClientWrapper.GetSelectServer()->Terminate();
                     dp->endOfPlay = true;
                     return false;
@@ -344,7 +344,7 @@ bool DmxPlayer::SendUniverseData(DmxPlayer* dp, DmxUniverse_v1* universe) {
     }
     else {
         if ( ! dp->mtcReceiver.isTimecodeRunning && dp->mtcSignalStarted && !dp->mtcSignalLost ) {
-            SysQLogger::getLogger()->logInfo("MTC signal lost");
+            CuemsLogger::getLogger()->logInfo("MTC signal lost");
             dp->mtcSignalLost = true;
         }
     }
@@ -356,7 +356,7 @@ bool DmxPlayer::SendUniverseData(DmxPlayer* dp, DmxUniverse_v1* universe) {
 void DmxPlayer::run( void ) {
     // Let's mark the playHead with the current time
     startTimeStamp = chrono::duration_cast<chrono::milliseconds>(chrono::high_resolution_clock::now().time_since_epoch()).count();
-    SysQLogger::getLogger()->logInfo( "Start timestamp: " + std::to_string(startTimeStamp) );
+    CuemsLogger::getLogger()->logInfo( "Start timestamp: " + std::to_string(startTimeStamp) );
     
     // Play head init set
     playHead = 0;

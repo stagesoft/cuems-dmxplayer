@@ -23,28 +23,49 @@
 //////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////
-// Stage Lab Cuems DMX player main header file
+// Stage Lab Cuems command line parser class source file
 //////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////
 
-#include <string>
-#include <filesystem>
-#include <csignal>
 #include "commandlineparser.h"
-#include "dmxplayer.h"
-#include "cuems_errors.h"
-#include "./cuemslogger/cuemslogger.h"
 
 //////////////////////////////////////////////////////////
-// Functions declarations
+CommandLineParser::CommandLineParser (int &argc, char **argv) {
+    for ( int i = 1; i < argc; ++i ) {
+        this->args.push_back( std::string(argv[i]) );
+    }
+}
 
-void showcopyright( void );
-void showusage ( void );
-void showwarrantydisclaimer( void );
-void showcopydisclaimer( void );
+//////////////////////////////////////////////////////////
+CommandLineParser::~CommandLineParser ( void ) {
+}
 
-// System signal handlers
-void sigTermHandler( int signum );
-void sigIntHandler( int signum );
-void sigUsr1Handler( int signum );
+//////////////////////////////////////////////////////////
+const std::string CommandLineParser::getParam( const std::string &option ) const {
+    std::vector<std::string>::const_iterator itr;
+    
+    itr =  std::find( this->args.begin(), this->args.end(), option );
+
+    if ( itr != this->args.end() && ++itr != this->args.end()){
+        return *itr;
+    }
+
+    return "";
+}
+
+//////////////////////////////////////////////////////////
+bool CommandLineParser::optionExists( const std::string &option ) const {
+    return std::find(this->args.begin(), this->args.end(), option) 
+        != this->args.end();
+}
+
+//////////////////////////////////////////////////////////
+const std::string CommandLineParser::getEndingFilename( void ) {
+    fs::path lastArg = args[args.size() - 1];
+
+    if ( lastArg.has_filename() ) 
+        return lastArg.string();
+    else
+        return "";
+}

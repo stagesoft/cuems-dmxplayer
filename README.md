@@ -1,2 +1,2 @@
 # dmxplayer
-SysQ DMX player
+Cuems DMX player

@@ -1,8 +1,8 @@
 /* LICENSE TEXT
 
-    dmxplayer for linux based on OLA, RtMidi and oscpack libraries to 
-    play DMX cues with MTC sync. It also receives OSC commands to do
-    some configurations dynamically.
+    audioplayer for linux based using RtAudio and RtMidi libraries to
+    process audio and receive MTC sync. It also uses oscpack to receive
+    some configurations through osc commands.
     Copyright (C) 2020  Stage Lab & bTactic.
 
     This program is free software: you can redistribute it and/or modify
@@ -23,34 +23,21 @@
 //////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////
-// Stage Lab SysQ command line parser class header file
+// Stage Lab Cuems return error codes for Cuems apps
 //////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////
-#ifndef COMMANDLINEPARSER_CLASS_H
-#define COMMANDLINEPARSER_CLASS_H
 
-#include <string>
-#include <vector>
-#include <algorithm>
-#include <filesystem>
+#ifndef CUEMS_ERRORS_H
+#define CUEMS_ERRORS_H
 
-using namespace std;
-namespace fs = filesystem;
+#define CUEMS_EXIT_OK                    0               // Success
+#define CUEMS_EXIT_FAILURE               -1              // Generic error
+#define CUEMS_EXIT_WRONG_PARAMETERS      -2
+#define CUEMS_EXIT_WRONG_DATA_FILE       -3
+#define CUEMS_EXIT_AUDIO_DEVICE_ERR      -4              // Perhaps jack not running
+#define CUEMS_EXIT_FAILED_OLA_SETUP      -5              // OLA setup failed, daemon running?
+#define CUEMS_EXIT_FAILED_OLA_SEL_SERV   -6              // OLA select server failed, daemon running?
+#define CUEMS_EXIT_FAILED_XML_INIT       -7              // XML parser initializer failed
 
-//////////////////////////////////////////////////////////
-class CommandLineParser
-{
-    public:
-        CommandLineParser (int &argc, char **argv);
-        ~CommandLineParser ( void );
-
-        const std::string getParam( const std::string &option ) const;
-        const std::string getEndingFilename( void );
-        bool optionExists( const std::string &option ) const;
-
-    private:
-        std::vector <std::string> args;
-};
-
-#endif // COMMANDLINEPARSER_CLASS_H
+#endif // CUEMS_ERRORS_H
