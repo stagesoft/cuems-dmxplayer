@@ -16,10 +16,7 @@ CXXFLAGS = -Wall -Wextra -std=c++17
 CXXFLAGS += 
 
 LDFLAGS =  -fsanitize=address
-LBLIBS = -lrtmidi -lpthread -lxerces-c -lstdc++fs -lola -lolacommon\
-			./oscreceiver/oscpack/osc/OscReceivedElements.o \
-			./oscreceiver/oscpack/ip/posix/UdpSocket.o
-
+LBLIBS = -lrtmidi -lpthread -lxerces-c -lstdc++fs -lola -lolacommon -loscpack
 TARGET := dmxplayer-cuems
 SRC := $(wildcard *.cpp) \
 			$(wildcard ./oscreceiver/*.cpp) \
@@ -41,18 +38,11 @@ debug: target
 
 target: $(TARGET)
 
-$(TARGET): $(OBJ) oscpack
+$(TARGET): $(OBJ)
 	$(CXX) $(OBJ) -o $@ $(LBLIBS)
-
-oscpack:
-	@echo Checking oscpack objects to be built
-	@cd oscreceiver/oscpack/ 1> /dev/null && make -i 1> /dev/null
-	@cd ../.. 1> /dev/null
 
 clean:
 	@rm -rf $(OBJ) $(TARGET)
-	@cd oscreceiver/oscpack/ 1> /dev/null && make -i clean 1> /dev/null
-	@cd ../.. 1> /dev/null
 
 install: $(TARGET)
 	install -d $(DESTDIR)$(prefix)/bin/
