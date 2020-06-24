@@ -48,11 +48,11 @@
 #include <ola/Callback.h>
 #include <ola/io/SelectServer.h>
 
-#include "./mtcreceiver/mtcreceiver.h"
-#include "./oscreceiver/oscreceiver.h"
+#include "mtcreceiver.h"
+#include "oscreceiver.h"
 
 #include "dmxcue_v1.h"
-#include "./cuemslogger/cuemslogger.h"
+#include "cuemslogger.h"
 #include "cuems_errors.h"
 
 using namespace std;

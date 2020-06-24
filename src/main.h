@@ -34,7 +34,8 @@
 #include "commandlineparser.h"
 #include "dmxplayer.h"
 #include "cuems_errors.h"
-#include "./cuemslogger/cuemslogger.h"
+#include "cuemslogger.h"
+#include "cuems_dmxplayerConfig.h"
 
 //////////////////////////////////////////////////////////
 // Functions declarations

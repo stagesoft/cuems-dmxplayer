@@ -1,0 +1,3 @@
+// Configured options and settings for cuems-dmxplayer
+#define cuems_dmxplayer_VERSION_MAJOR @cuems_dmxplayer_VERSION_MAJOR@
+#define cuems_dmxplayer_VERSION_MINOR @cuems_dmxplayer_VERSION_MINOR@

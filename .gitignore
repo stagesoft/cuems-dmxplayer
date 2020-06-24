@@ -35,3 +35,6 @@ xml_examples/**
 *.out
 *.app
 dmxplayer-cuems
+
+# CMake build dir
+build/**

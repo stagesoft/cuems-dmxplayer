@@ -263,7 +263,8 @@ int main( int argc, char *argv[] ) {
 
 //////////////////////////////////////////////////////////
 void showcopyright( void ) {
-    std::cout << "DmxPlayer - Copyright (C) 2020 Stage Lab & bTactic" << endl <<
+    std::cout << "dmxplayer-cuems v." << cuems_dmxplayer_VERSION_MAJOR << "." << 
+        cuems_dmxplayer_VERSION_MINOR << " - Copyright (C) 2020 Stage Lab & bTactic" << endl <<
         "This program comes with ABSOLUTELY NO WARRANTY; for details type `--show w'." << endl <<
         "This is free software, and you are welcome to redistribute it" << endl <<
         "under certain conditions; type `--show c' for details." << endl << endl;
@@ -272,7 +273,7 @@ void showcopyright( void ) {
 
 //////////////////////////////////////////////////////////
 void showusage( void ) {
-    std::cout << "Usage :    dmxplayer --port <osc_port> [other options] <xml_file_path>" << endl << endl <<
+    std::cout << "Usage :    dmxplayer-cuems --port <osc_port> [other options] <xml_file_path>" << endl << endl <<
         "           COMPULSORY OPTIONS:" << endl << 
         "           --file , -f <file_path> : xml file to read DMX scenes from." << endl <<
         "               File name can also be stated as the last argument with no option indicator." << endl << endl <<
