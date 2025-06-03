@@ -86,38 +86,6 @@ int main( int argc, char *argv[] ) {
         exit( CUEMS_EXIT_WRONG_PARAMETERS );
     }
 
-    fs::path filePath;
-#if 0
-    // --file or -f command parse and filename retreival and check
-    // retreival
-    if ( argParser->optionExists("--file") || argParser->optionExists("-f") ) {
-        filePath = argParser->getParam("--file");
-
-        if ( filePath.empty() ) filePath = argParser->getParam("-f");
-
-        if ( filePath.empty() ) {
-            // Not file path specified after file option
-            std::cout << "File not specified after --file or -f option." << endl;
-
-            logger->getLogger()->logError( "Exiting with result code: " + std::to_string(CUEMS_EXIT_WRONG_DATA_FILE) );
-
-            exit( CUEMS_EXIT_WRONG_DATA_FILE );
-        }
-    }
-    else {
-        filePath = argParser->getEndingFilename();
-    }
-    // check
-    if ( !filePath.empty() && !fs::exists(filePath) ) {
-            // File does not exist
-            std::cout << "Unable to locate file: " << filePath << endl;
-
-            logger->getLogger()->logError( "Exiting with result code: " + std::to_string(CUEMS_EXIT_WRONG_DATA_FILE) );
-
-            exit( CUEMS_EXIT_WRONG_DATA_FILE );
-    }
-#endif
-
     // --port or -p command parse and port number retreival and check
     unsigned int portNumber = 0;
 
@@ -136,48 +104,6 @@ int main( int argc, char *argv[] ) {
         }
         else {
             portNumber = std::stoi( portParam );
-        }
-    }
-
-    // --offset or -o command parse and offset retreival and check
-    long int offsetMilliseconds = 0;
-
-    if ( argParser->optionExists("--offset") || argParser->optionExists("-o") ) {
-        std::string offsetParam = argParser->getParam("--offset");
-
-        if ( offsetParam.empty() ) offsetParam = argParser->getParam("-o");
-
-        if ( offsetParam.empty() ) {
-            // Not valid port number specified after port option
-            std::cout << "Not valid offset integer after --offset or -o option." << endl;
-
-            logger->getLogger()->logError( "Exiting with result code: " + std::to_string(CUEMS_EXIT_WRONG_PARAMETERS) );
-
-            exit( CUEMS_EXIT_WRONG_PARAMETERS );
-        }
-        else {
-            offsetMilliseconds = std::stoi( offsetParam );
-        }
-    }
-
-    // --wait or -w command parse and offset retreival and check
-    long int endWaitMilliseconds = 0;
-
-    if ( argParser->optionExists("--wait") || argParser->optionExists("-w") ) {
-        std::string waitParam = argParser->getParam("--wait");
-
-        if ( waitParam.empty() ) waitParam = argParser->getParam("-w");
-
-        if ( waitParam.empty() ) {
-            // Not valid port number specified after port option
-            std::cout << "Not valid wait integer after --wait or -w option." << endl;
-
-            logger->getLogger()->logError( "Exiting with result code: " + std::to_string(CUEMS_EXIT_WRONG_PARAMETERS) );
-
-            exit( CUEMS_EXIT_WRONG_PARAMETERS );
-        }
-        else {
-            endWaitMilliseconds = std::stoi( waitParam );
         }
     }
 
@@ -218,7 +144,7 @@ int main( int argc, char *argv[] ) {
     // we change the logger slug to reflect this identification on the logs
     logger->setNewSlug("d" + std::to_string(portNumber) + processUuid);
 
-    if ( /*filePath.empty() || */ portNumber == 0 ) {
+    if ( portNumber == 0 ) {
         std::cout << "Wrong parameters! Check usage..." << endl << endl;
         showcopyright();
         showusage();
@@ -228,14 +154,7 @@ int main( int argc, char *argv[] ) {
         exit( CUEMS_EXIT_FAILED_OLA_SETUP );
     }
     else {
-        myDmxPlayer = new DmxPlayer(    portNumber,
-                                        offsetMilliseconds,
-                                        endWaitMilliseconds,
-                                        "",
-                                        filePath,
-                                        processUuid,
-                                        stopOnLostFlag );
-
+        myDmxPlayer = new DmxPlayer( portNumber, "", stopOnLostFlag );
     }
 
     //////////////////////////////////////////////////////////
@@ -252,7 +171,7 @@ int main( int argc, char *argv[] ) {
 
     //////////////////////////////////////////////////////////
     // Wait for it to finnish somehow
-    while ( myDmxPlayer->olaServer->IsRunning() ) ;
+    while ( myDmxPlayer->IsRunning() ) ;
 
     logger->logInfo( "Exiting with result code: " + std::to_string( EXIT_SUCCESS ) );
 
@@ -274,28 +193,19 @@ void showcopyright( void ) {
 
 //////////////////////////////////////////////////////////
 void showusage( void ) {
-    std::cout << "Usage :    dmxplayer --port <osc_port> [other options] <xml_file_path>" << endl << endl <<
+    std::cout << "Usage :    dmxplayer --port <osc_port> [other options]" << endl << endl <<
         "           COMPULSORY OPTIONS:" << endl <<
-        "           --file , -f <file_path> : xml file to read DMX scenes from." << endl <<
-        "               File name can also be stated as the last argument with no option indicator." << endl << endl <<
         "           --port , -p <port_number> : OSC port to listen to." << endl << endl <<
         "           OPTIONAL OPTIONS:" << endl <<
         "           --ciml , -c : Continue If Mtc is Lost, flag to define that the player should continue" << endl <<
         "               if the MTC sync signal is lost. If not specified (standard mode) it stops on lost." << endl << endl <<
-        "           --offset , -o <milliseconds>: playing time offset in milliseconds." << endl <<
-        "               Positive (+) or (-) negative integer indicating time displacement." << endl <<
-        "               Default is 0." << endl << endl <<
         "           --uuid , -u <uuid_string> : indicates a unique identifier for the dmxplayer to be" << endl <<
         "               recognized in different internal identification porpouses such as OLA environment." << endl << endl <<
-        "           --wait , -w <milliseconds> : waiting time after reaching the end of the DMX scene and" << endl <<
-        "               before quiting the program. Default is 0. -1 indicates the program remains" << endl <<
-        "               running till SIG-TERM or OSC command /quit is received." << endl << endl <<
         "           OTHER OPTIONS:" << endl <<
         "           --show : shows license disclaimers." << endl <<
         "               w : shows warranty disclaimer." << endl <<
-        "               c : shows copyright disclaimer." << endl << endl <<
-        "           Default audio device params are : 2 ch x 44.1K -> default device." << endl << endl <<
-        "           audioplayer uses Jack Audio environment, make sure it's running." << endl << endl;
+        "               c : shows copyright disclaimer." << endl
+        << endl;
 }
 
 //////////////////////////////////////////////////////////

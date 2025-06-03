@@ -29,60 +29,28 @@
 //////////////////////////////////////////////////////////
 
 #include "dmxplayer.h"
+#include <thread>
+#include <charconv>
 
 using namespace std;
 
 ////////////////////////////////////////////
 // Initializing static class members
 std::atomic<long int> DmxPlayer::playHead(0);
-bool DmxPlayer::followingMtc = true;
-bool DmxPlayer::fading = false;
-bool DmxPlayer::isSceneFull = false;
-bool DmxPlayer::sceneSet = false;
-bool DmxPlayer::endOfPlay = false;
-bool DmxPlayer::outOfFile = false;
 
 //////////////////////////////////////////////////////////
 DmxPlayer::DmxPlayer(   int port,
-                        long int initOffset,
-                        long int finalWait,
                         const string oscRoute,
-                        const string filePath,
-                        const string uuid,
                         const bool stopOnLostFlag )
                         :   // Members initialization
                         OscReceiver(port, oscRoute),
-                        //dmxCue(filePath),
-                        headOffset(initOffset),
-                        endWaitTime(finalWait),
-                        playerUuid(uuid),
                         stopOnMTCLost(stopOnLostFlag)
 {
-    (void)filePath;
-    //////////////////////////////////////////////////////////
-    // Config tasks to be implemented later maybe
-    // loadNodeConfig();
-	// loadMediaConfig();
-
     //////////////////////////////////////////////////////////
     // Set up working class members
 
     // Starting OLA logging
     ola::InitLogging(ola::OLA_LOG_WARN, ola::OLA_LOG_STDERR);
-
-    /*
-    {
-      DmxUniverse_v1 u1;
-      u1.id = 1;
-      u1.channels.resize(10);
-      for (uint j = 0; j < u1.channels.size(); ++j) {
-        u1.channels[j].id = j;
-        u1.channels[j].value = 255;
-        std::cout << "set channel " << j << std::endl;
-      }
-      m_universes.push_back(u1);
-    }
-    */
 
     if (!olaClientWrapper.Setup()) {
         std::cerr << "OLA setup failed" << endl;
@@ -102,13 +70,7 @@ DmxPlayer::DmxPlayer(   int port,
     }
     else {
         // Let's set a callback for each universe deailed in the scene
-        /* TODO
-        CuemsLogger::getLogger()->logInfo("Setting OLA callback for " + std::to_string(dmxCue.dmxScene.universes.size()) + " universes");
-        for ( std::vector<DmxUniverse_v1>::iterator it = dmxCue.dmxScene.universes.begin() ; it != dmxCue.dmxScene.universes.end() ; it++ ) {
-            olaServer->RegisterRepeatingTimeout( 100, ola::NewCallback( &DmxPlayer::SendUniverseData, this, &(*it) ) );
-        }
-        */
-        CuemsLogger::getLogger()->logInfo("Setting OLA callback for " + std::to_string(m_universes.size()) + " universes");
+        CuemsLogger::getLogger()->logInfo("Setting OLA callback");
         olaServer->RegisterRepeatingTimeout( 10, ola::NewCallback( &DmxPlayer::SendUniverseData, this ) );
     }
 
@@ -119,22 +81,34 @@ DmxPlayer::~DmxPlayer( void ) {
 
 }
 
+//////////////////////////////////////////////////////////
 void DmxPlayer::ProcessBundle( const osc::ReceivedBundle& b,
                                const IpEndpointName& remoteEndpoint )
 {
+  // set 'now' MTC by default if it's a top-leven bundle;
+  if (0 == m_inBundle) {
+    m_nextScene.m_mtcStart = playHead;
+  }
   ++m_inBundle;
-  // set 'now' MTC by default;
-  m_nextScene.m_mtcStart = playHead;
-  std::cout << "DmxPlayer::ProcessBundle => " << m_inBundle << std::endl;
+  std::cout << "DmxPlayer::ProcessBundle => " << m_inBundle
+    << " thread=" << std::this_thread::get_id()
+    << std::endl;
   OscReceiver::ProcessBundle(b, remoteEndpoint);
   --m_inBundle;
   std::cout << "DmxPlayer::ProcessBundle <= " << m_inBundle
     << "  values:" << m_nextScene.m_sceneValues.size() << std::endl;
-  m_scenes.push_back(std::move(m_nextScene));
-  /*
-  std::cout << "   count = " << m_nextScene.m_sceneValues.size()
-    << " ~> " << m_scenes.back().m_sceneValues.size() << std::endl;
-  */
+
+  // If it's a top-level bundle, add m_nextScene to scenes
+  if (0 == m_inBundle) {
+    std::lock_guard guard(m_scenesMutex);
+    auto r_it = m_scenes.rbegin();
+    for (; r_it != m_scenes.rend(); ++r_it) {
+      if (r_it->m_mtcStart <= m_nextScene.m_mtcStart) {
+        break;
+      }
+    }
+    m_scenes.insert(r_it.base(), std::move(m_nextScene));
+  }
 }
 
 //////////////////////////////////////////////////////////
@@ -143,68 +117,8 @@ void DmxPlayer::ProcessMessage( const osc::ReceivedMessage& m,
 {
     try {
         // Parsing OSC DmxPlayer messages
-        // Offset
-        if ( (string) m.AddressPattern() == (OscReceiver::oscAddress + "/offset") ) {
-            // osc::ReceivedMessageArgumentStream args = m.ArgumentStream();
-            // args >> volumeMaster[0] >> osc::EndMessage;
-            std::cout << "/offset  " << m.ArgumentCount() << "   " << m.TypeTags() << std::endl;
-            auto it = m.ArgumentsBegin();
-            while (it != m.ArgumentsEnd()) {
-              ++it;
-            }
-
-            float offsetOSC;
-            m.ArgumentStream() >> offsetOSC >> osc::EndMessage;
-            offsetOSC = floor(offsetOSC);
-
-            CuemsLogger::getLogger()->logInfo("OSC: new offset value " + std::to_string((long int)offsetOSC));
-
-            // Offset argument in OSC command is in milliseconds
-            // so we need to calculate in bytes in our file
-
-            headOffset = offsetOSC;
-
-            offsetChanged = true;
-
-        // Wait
-        } else if ( (string) m.AddressPattern() == (OscReceiver::oscAddress + "/wait") ) {
-            // osc::ReceivedMessageArgumentStream args = m.ArgumentStream();
-            // args >> volumeMaster[0] >> osc::EndMessage;
-            float waitOSC;
-            m.ArgumentStream() >> waitOSC >> osc::EndMessage;
-            waitOSC = floor(waitOSC);
-
-            CuemsLogger::getLogger()->logInfo("OSC: new end wait value " + std::to_string((long int)waitOSC));
-
-            endWaitTime = waitOSC;             // In milliseconds
-        // Load
-        } else if ( (string) m.AddressPattern() == (OscReceiver::oscAddress + "/load") ) {
-            const char* newPath;
-            m.ArgumentStream() >> newPath >> osc::EndMessage;
-            // dmxCue.xmlPath = newPath;
-            CuemsLogger::getLogger()->logInfo("OSC: /load command, not working yet");
-            // audioFile.close();
-            // CuemsLogger::getLogger()->logInfo("OSC: previous file closed");
-            // audioFile.loadFile(audioPath);
-            // CuemsLogger::getLogger()->logInfo("OSC: loaded new path -> " + audioPath);
-        // Play/pause
-        } else if ( (string) m.AddressPattern() == (OscReceiver::oscAddress + "/play") ) {
-            CuemsLogger::getLogger()->logInfo("OSC: /play command");
-            if ( playheadControl != 0 )
-                playheadControl = 0;
-            else
-                playheadControl = 1;
-        // Stop
-        } else if ( (string) m.AddressPattern() == (OscReceiver::oscAddress + "/stop") ) {
-            // TO DO : right now is the same as play/pause... Don't know if there
-            //          will be other implementations of the command...
-            CuemsLogger::getLogger()->logInfo("OSC: /stop command");
-            if ( playheadControl != 0 )
-                playheadControl = 0;
-            else
-                playheadControl = 1;
         // Quit
-        } else if ( (string)m.AddressPattern() == (OscReceiver::oscAddress + "/quit") ) {
+        if ( (string)m.AddressPattern() == (OscReceiver::oscAddress + "/quit") ) {
             CuemsLogger::getLogger()->logInfo("OSC: /quit command");
             raise(SIGTERM);
         // Check
@@ -215,56 +129,43 @@ void DmxPlayer::ProcessMessage( const osc::ReceivedMessage& m,
         } else if ( (string)m.AddressPattern() == (OscReceiver::oscAddress + "/stoponlost") ) {
             CuemsLogger::getLogger()->logInfo("OSC: /stoponlost command");
             stopOnMTCLost = !stopOnMTCLost;
-        } else if ( (string)m.AddressPattern() == (OscReceiver::oscAddress + "/frame") ) {
-            CuemsLogger::getLogger()->logInfo("OSC: /frame command");
-            auto stream = m.ArgumentStream();
-            int universe_id;
-            stream >> universe_id;
-            //DmxUniverse_v1 u_new;
-            //u_new.id = universe_id;
-            std::cout << "OSC: /frame universe=" << universe_id << std::endl;
-            auto &frame_values = m_nextScene.m_sceneValues[universe_id];
-            while (!stream.Eos()) {
-              int channel = -1;
-              int value = -1;
-              stream >> channel>> value;
-              //DmxChannel_v1 ch;
-              //stream >> ch.id >> ch.value;
-              //std::cout << "channel: " << channel  << "  value: " << value << std::endl;
-              //u_new.channels.push_back(DmxChannel_v1{{}, (unsigned int)channel, (unsigned char)value} );
-              //u_new.channels.push_back({{}, (unsigned int)channel, (unsigned char)value, 0});
-              frame_values[channel] = value;
+        // We only accept the following commands from a bundle
+        } else if (0 < m_inBundle) {
+          if ( (string)m.AddressPattern() == (OscReceiver::oscAddress + "/frame") ) {
+              CuemsLogger::getLogger()->logInfo("OSC: /frame command");
+              auto stream = m.ArgumentStream();
+              int universe_id;
+              stream >> universe_id;
+              std::cout << "OSC: /frame universe=" << universe_id << std::endl;
+              auto &frame_values = m_nextScene.m_sceneValues[universe_id];
+              while (!stream.Eos()) {
+                int channel = -1;
+                int value = -1;
+                stream >> channel>> value;
+                frame_values[channel] = value;
+              }
+          } else if ( (string)m.AddressPattern() == (OscReceiver::oscAddress + "/fade_time") ) {
+            float fade = 0;
+            m.ArgumentStream() >> fade >> osc::EndMessage;
+            m_nextScene.m_fadeTime = std::round(1000 * fade);
+          } else if ( (string)m.AddressPattern() == (OscReceiver::oscAddress + "/mtc_time") ) {
+            const char *str = nullptr;
+            m.ArgumentStream() >> str >> osc::EndMessage;
+            std::string_view start_time(str);
+            if ("now" == start_time) {
+              m_nextScene.m_mtcStart = playHead;
             }
-            //m_universes.push_back(u_new);
-            // start now
-            //headOffset = -playHead;
-
-            /*
-            olaClientWrapper.GetClient()->FetchDMX(universe_id, ola::NewSingleCallback(&DmxPlayer::OnFetchDMX, this));
-            std::cout << "fetch sent" << std::endl;
-            */
-            //olaServer->RegisterRepeatingTimeout( 10, ola::NewCallback( &DmxPlayer::SendUniverseData, this ) );
-        } else if ( (string)m.AddressPattern() == (OscReceiver::oscAddress + "/fade_time") ) {
-          int fade = 0;
-          m.ArgumentStream() >> fade >> osc::EndMessage;
-          m_fade = fade; // TODO: remove this
-          m_nextScene.m_fadeTime = fade;
-        } else if ( (string)m.AddressPattern() == (OscReceiver::oscAddress + "/start_offset") ) {
-          int ofs = 0;
-          m.ArgumentStream() >> ofs >> osc::EndMessage;
-          m_nextScene.m_mtcStart = playHead + ofs;
-        // In
-        /*
-        } else if ( (string)m.AddressPattern() == (OscReceiver::oscAddress + "/in") ) {
-            CuemsLogger::getLogger()->logInfo("OSC: /in command");
-            fading = true;
-            */
-        // Out
-        /*
-        } else if ( (string)m.AddressPattern() == (OscReceiver::oscAddress + "/out") ) {
-            CuemsLogger::getLogger()->logInfo("OSC: /out command");
-            fading = true;
-            */
+            else if ('+' == start_time[0]) {
+              m_nextScene.m_mtcStart = playHead + convertTime(start_time.substr(1));
+            }
+            else {
+              m_nextScene.m_mtcStart = std::max(playHead.load(), convertTime(start_time));
+            }
+          } else if ( (string)m.AddressPattern() == (OscReceiver::oscAddress + "/start_offset") ) {
+            int ofs = 0;
+            m.ArgumentStream() >> ofs >> osc::EndMessage;
+            m_nextScene.m_mtcStart = playHead + ofs;
+          }
         }
 
     } catch ( osc::Exception& e ) {
@@ -275,7 +176,39 @@ void DmxPlayer::ProcessMessage( const osc::ReceivedMessage& m,
     }
 }
 
+//////////////////////////////////////////////////////////
+long int DmxPlayer::convertTime(const std::string_view &time)
+{
+  // Time format: [[h:]m:]s
+  double seconds = 0;
+  int minutes = 0;
+  int hours = 0;
+  const char* p = time.data();
 
+  int L = time.size() - 1;
+  auto j = time.rfind(':', L) + 1;
+  //std::cout << " DmxPlayer::convertTime: s = " << time.substr(j, L - j)
+  //  << " j=" << j << " L=" << L << std::endl;
+  std::from_chars(p+j, p+L+1, seconds);
+  if (1 < j) {
+    L = j - 2;
+    j = time.rfind(':', L) + 1;
+    //std::cout << "    m = " << time.substr(j, L - j + 1)
+    //  << " j=" << j << " L=" << L << std::endl;
+    std::from_chars(p+j, p+L+1, minutes);
+  }
+  if (1 < j) {
+    L = j - 2;
+    j = time.rfind(':', L) + 1;
+    //std::cout << "    h = " << time.substr(j, L - j + 1)
+    //  << " j=" << j << " L=" << L << std::endl;
+    std::from_chars(p+j, p+L+1, hours);
+  }
+  //std::cout << "  conversion result: " << hours << ":" << minutes << ":" << seconds << std::endl;
+  return std::round(seconds * 1000 + 60*1000 * minutes + 3600*1000 * hours);
+}
+
+//////////////////////////////////////////////////////////
 //static
 void DmxPlayer::OnFetchDMX(DmxPlayer* dp, uint32_t univ_id, const ola::client::Result& result,
     const ola::client::DMXMetadata& metadata, const ola::DmxBuffer& buffer)
@@ -285,20 +218,9 @@ void DmxPlayer::OnFetchDMX(DmxPlayer* dp, uint32_t univ_id, const ola::client::R
     << " Result=" << result.Success()
     << " id=" << metadata.universe << "/" << univ_id
     << " buffer size=" << buffer.Size()
+    << " thread=" << std::this_thread::get_id()
     << std::endl;
-  /*
-  for (auto &u : dp->m_universes) {
-    if (u.id == metadata.universe) {
-      std::cout << u.id << "  values: (" << u.channels.size() << ") ";
-      for (auto &ch : u.channels) {
-        ch.start_value = buffer.Get(ch.id);
-        std::cout << (int)ch.start_value << " ";
-      }
-      std::cout << std::endl;
-      u.transition_ready = true;
-    }
-  }
-  */
+
   auto it = dp->m_activeUniverses.find(univ_id);
   if (it != dp->m_activeUniverses.end()) {
     if (result.Success()) {
@@ -311,15 +233,13 @@ void DmxPlayer::OnFetchDMX(DmxPlayer* dp, uint32_t univ_id, const ola::client::R
   }
 }
 
+//////////////////////////////////////////////////////////
 bool DmxPlayer::SendUniverseData(DmxPlayer* dp) {
     // If we are receiving MTC and following it...
     // Or we are not receiving it and we do not stop on its lost
     // And we haven't reached the end of playing time...
-    if (    ( (dp->mtcReceiver.isTimecodeRunning && dp->followingMtc) ||
-            (dp->mtcSignalLost && !dp->stopOnMTCLost) ) &&
-            !dp->endOfPlay && dp->playheadControl == 1 ) {
-        // unsigned int count = 0;
-        // unsigned int read = 0;
+    if (    ( (dp->mtcReceiver.isTimecodeRunning) ||
+            (dp->mtcSignalLost && !dp->stopOnMTCLost) )   ) {
 
         // Check play control flags
         // If there is MTC signal and we haven't started, check it
@@ -338,16 +258,10 @@ bool DmxPlayer::SendUniverseData(DmxPlayer* dp) {
             dp->mtcSignalLost = false;
         }
 
-        if ( dp->followingMtc ) {
-            dp->playHead = dp->mtcReceiver.mtcHead;
-        }
-        else if ( dp->mtcSignalStarted ) {
-            // If we are not following MTC but the start signal was already
-            // set... We update the play head the amount of one frame per
-            // loop in here, to follow our own timing run
-            playHead += ( 1000 / dp->mtcReceiver.curFrameRate );
-        }
+        // TODO: accurate handle of head postition and mtc lost handling
+        dp->playHead = dp->mtcReceiver.mtcHead;
         dp->processScenes();
+        dp->updateActiveUniverses();
     }
     else {
         if ( ! dp->mtcReceiver.isTimecodeRunning && dp->mtcSignalStarted && !dp->mtcSignalLost ) {
@@ -359,7 +273,9 @@ bool DmxPlayer::SendUniverseData(DmxPlayer* dp) {
     return true;
 }
 
+//////////////////////////////////////////////////////////
 void DmxPlayer::processScenes() {
+  std::lock_guard guard(m_scenesMutex);
   for (auto it = m_scenes.begin(); it != m_scenes.end(); ) {
     SceneTransitionInfo &sc = *it++;
     if (sc.m_mtcStart > playHead) {
@@ -369,6 +285,7 @@ void DmxPlayer::processScenes() {
     std::cout << "Processing scene transition at " << sc.m_mtcStart
               << "  now = " << playHead
               << "  fade = " << sc.m_fadeTime
+              << "  thread=" << std::this_thread::get_id()
               << std::endl;
     for (auto it_univ = sc.m_sceneValues.begin(); it_univ != sc.m_sceneValues.end();) {
       uint32_t univ_id = it_univ->first;
@@ -377,7 +294,6 @@ void DmxPlayer::processScenes() {
       if (0 == active_universe.m_state) {
         // Just created, init it first
         active_universe.m_id = univ_id;
-        active_universe.m_mtcLast = sc.m_mtcStart;
         active_universe.m_state = 1;
         olaClientWrapper.GetClient()->FetchDMX(univ_id, ola::NewSingleCallback(&DmxPlayer::OnFetchDMX, this, univ_id));
         std::cout << "fetch sent for " << univ_id << std::endl;
@@ -414,7 +330,11 @@ void DmxPlayer::processScenes() {
       it = m_scenes.erase(--it);
     }
   }
+}
 
+//////////////////////////////////////////////////////////
+void DmxPlayer::updateActiveUniverses()
+{
   for (auto it = m_activeUniverses.begin(); it != m_activeUniverses.end();) {
     auto &univ = it->second;
     // skip non-ready universes
@@ -456,205 +376,6 @@ void DmxPlayer::processScenes() {
   }
 }
 
-#if 0
-//////////////////////////////////////////////////////////
-// OLA per DMX universe MTC frame player
-{
-    static float fadeMult = 0;
-    static ola::DmxBuffer buffer;
-
-    /*
-    std::cout << "DmxPlayer::SendUniverseData: " << dp->playHead
-              << "  " << dp->mtcReceiver.mtcHead
-              << std::endl;
-    // */
-
-    // If we are receiving MTC and following it...
-    // Or we are not receiving it and we do not stop on its lost
-    // And we haven't reached the end of playing time...
-    if (    ( (dp->mtcReceiver.isTimecodeRunning && dp->followingMtc) ||
-            (dp->mtcSignalLost && !dp->stopOnMTCLost) ) &&
-            !dp->endOfPlay && dp->playheadControl == 1 ) {
-        // unsigned int count = 0;
-        // unsigned int read = 0;
-
-        // Check play control flags
-        // If there is MTC signal and we haven't started, check it
-        if ( dp->mtcReceiver.isTimecodeRunning ) {
-            if ( !dp->mtcSignalStarted ) {
-                CuemsLogger::getLogger()->logInfo("MTC -> Play started");
-                dp->mtcSignalStarted = true;
-            }
-            else {
-                if ( dp->mtcSignalLost ) {
-                    CuemsLogger::getLogger()->logInfo("MTC -> Play resumed");
-                }
-            }
-
-            // Receiving MTC, means that signal is not lost anymore
-            dp->mtcSignalLost = false;
-        }
-
-        if ( dp->followingMtc ) {
-            dp->playHead = dp->mtcReceiver.mtcHead;
-        }
-        else if ( dp->mtcSignalStarted ) {
-            // If we are not following MTC but the start signal was already
-            // set... We update the play head the amount of one frame per
-            // loop in here, to follow our own timing run
-            playHead += ( 1000 / dp->mtcReceiver.curFrameRate );
-        }
-
-        long int currentPos = dp->playHead + dp->headOffset;
-        //long in_time = dp->dmxCue.getInTime();
-        //long out_time = dp->dmxCue.getOutTime();
-        //long dmx_len = dp->dmxCue.getLength();
-        long in_time = dp->m_fade; // TODO
-        //long out_time = 1000;
-        //long dmx_len = 1000;
-
-        //long int totalLength = dmx_len + in_time;
-        //long int totalLengthOut = totalLength + out_time;
-
-        // Calculate enveloping moment and multiplier
-        if ( currentPos < 0 ) {
-            dp->fading = false;
-            dp->isSceneFull = false;
-            dp->sceneSet = true;
-            dp->outOfFile = false;
-        }
-        else if ( currentPos < in_time ) {
-            dp->fading = true;
-            // Fade multiplier calculus
-            fadeMult = (float)currentPos / in_time;
-            dp->isSceneFull = false;
-            dp->sceneSet = false;
-            dp->outOfFile = false;
-        }
-        else {
-            dp->fading = false;
-            // Fade multiplier calculus
-            fadeMult = 1.0;
-            dp->isSceneFull = true;
-            //dp->sceneSet = false;
-            dp->outOfFile = false;
-        }
-        /*
-        else if ( currentPos < totalLength ) {
-            dp->fading = false;
-            // Fade multiplier calculus
-            fadeMult = 1.0;
-            dp->isSceneFull = true;
-            dp->sceneSet = false;
-            dp->outOfFile = false;
-        }
-        else if ( currentPos > totalLength && currentPos < totalLengthOut ) {
-            dp->fading = true;
-            // Fade multiplier calculus
-            fadeMult = (float) (totalLengthOut - currentPos) / out_time;
-            dp->isSceneFull = false;
-            dp->sceneSet = false;
-            dp->outOfFile = false;
-        }
-        else {
-            dp->fading = false;
-            dp->isSceneFull = false;
-            dp->sceneSet = false;
-            //dp->outOfFile = true;
-        }
-        */
-
-        //////////////////////////////////////////////////////////
-        // DMX PLAY
-        for (auto u_it = dp->m_universes.begin(); u_it != dp->m_universes.end(); ) {
-          auto *universe = &(*u_it);
-          ++u_it;
-          if (!universe->transition_ready) {
-            continue;
-          }
-          int ch_cnt = 0;
-          if ( /*!dp->isSceneFull*/ dp->fading ) {
-              // We are not in a full scene moment, fading in or out
-              float fade_start = 1.0f - fadeMult;
-              for (   std::vector<DmxChannel_v1>::iterator it = universe->channels.begin() ;
-                      it != universe->channels.end() ; it++ ) {
-
-                  // Let's send all this dmx data
-                  float v = std::round((*it).start_value * fade_start + (*it).value * fadeMult);
-                  buffer.SetChannel( (*it).id, (uint8_t) v);
-                  ++ch_cnt;
-              }
-          }
-          else /*if ( !dp->sceneSet ) */ {
-              // We are in a full scene moment, if not set yet, set it full
-              for (   std::vector<DmxChannel_v1>::iterator it = universe->channels.begin() ;
-                      it != universe->channels.end() ; it++ ) {
-
-                  // Let's send all this dmx data
-                  buffer.SetChannel( (*it).id, (*it).value );
-                  ++ch_cnt;
-              }
-
-              //dp->sceneSet = true;
-              --u_it;
-              u_it = dp->m_universes.erase(u_it);
-          }
-
-          //std::cout << "sending data to universe " << universe->id << "  cnt: " << ch_cnt << std::endl;
-          if (0 < ch_cnt) {
-            dp->olaClientWrapper.GetClient()->SendDMX(universe->id, buffer, ola::client::SendDMXArgs());
-          }
-        }
-        //////////////////////////////////////////////////////////
-
-        // If we are already out of the play boundaries... We check for waiting times...
-        if ( dp->outOfFile ) {
-            // Maybe it is the end of the stream
-            if ( dp->endWaitTime == 0 ) {
-                // If there is not waiting time, we just finish
-                // and we end the stream by returning a positive value
-                CuemsLogger::getLogger()->logInfo("No end wait time set, ending audioplayer");
-                dp->olaClientWrapper.GetSelectServer()->Terminate();
-                dp->endOfPlay = true;
-                return false;
-            }
-            else {
-                // If we have waiting time set...
-                if ( dp->endTimeStamp == 0 ) {
-                    // We note down our timestamp
-                    dp->endTimeStamp = chrono::duration_cast<chrono::milliseconds>(chrono::high_resolution_clock::now().time_since_epoch()).count();
-
-                    std::string str;
-                    if ( dp->endWaitTime == __LONG_MAX__ )
-                        str = "for quit command";
-                    else
-                        str = std::to_string( dp->endWaitTime ) + " ms";
-
-                    CuemsLogger::getLogger()->logInfo("Out of file boundaries, waiting " + str);
-                }
-
-                long int timecodeNow = chrono::duration_cast<chrono::milliseconds>(chrono::high_resolution_clock::now().time_since_epoch()).count();
-
-                if ( ( timecodeNow - dp->endTimeStamp ) > dp->endWaitTime ) {
-                    CuemsLogger::getLogger()->logInfo("Waiting time exceded, ending audioplayer");
-                    dp->olaClientWrapper.GetSelectServer()->Terminate();
-                    dp->endOfPlay = true;
-                    return false;
-                }
-            }
-        }
-    }
-    else {
-        if ( ! dp->mtcReceiver.isTimecodeRunning && dp->mtcSignalStarted && !dp->mtcSignalLost ) {
-            CuemsLogger::getLogger()->logInfo("MTC signal lost");
-            dp->mtcSignalLost = true;
-        }
-    }
-
-    return true;
-}
-#endif
-
 //////////////////////////////////////////////////////////
 void DmxPlayer::run( void ) {
     // Let's mark the playHead with the current time
@@ -667,19 +388,3 @@ void DmxPlayer::run( void ) {
     // Run OLA set callbacks
     olaServer->Run();
 }
-
-//////////////////////////////////////////////////////////
-/*
-bool DmxPlayer::loadNodeConfig( void ) {
-    cout << "Node config read!" << endl;
-    return true;
-}
-*/
-
-//////////////////////////////////////////////////////////
-/*
-bool DmxPlayer::loadMediaConfig( void ) {
-    cout << "Media config read!" << endl;
-    return true;
-}
-*/

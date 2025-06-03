@@ -31,8 +31,6 @@
 #define DMXPLAYER_H
 
 //////////////////////////////////////////////////////////
-// Preprocessor definitions
-#define PLAYHEAD_TOLLERANCE 100     // Play head ms displacement tollerance respect MTC
 
 #include <atomic>
 #include <chrono>
@@ -41,6 +39,7 @@
 #include <list>
 #include <iostream>
 #include <iomanip>
+#include <mutex>
 #include <rtmidi/RtMidi.h>
 
 #include <ola/DmxBuffer.h>
@@ -52,38 +51,8 @@
 #include "./mtcreceiver/mtcreceiver.h"
 #include "./oscreceiver/oscreceiver.h"
 
-#include "dmxcue_v1.h"
 #include "./cuemslogger/cuemslogger.h"
 #include "cuems_errors.h"
-
-using FrameValues = std::map<uint16_t, uint8_t>;    // channel_id -> value
-using SceneValues = std::map<uint32_t, FrameValues>;  // universe_id -> FrameValues
-
-struct SceneTransitionInfo
-{
-  SceneValues m_sceneValues;
-  long int m_mtcStart = 0;
-  int m_fadeTime = 0;
-};
-
-struct ChannelTransition
-{
-  long int mtc0 = 0;
-  long int mtc1 = 0;
-  uint8_t val0 = 0;
-  uint8_t val1 = 0;
-};
-
-using ChannelTransitions = std::map<uint16_t, ChannelTransition>; // channel_id -> ChannelTransition
-
-struct ActiveUniverse
-{
-  uint32_t  m_id;
-  ola::DmxBuffer m_channelsBuffer;
-  int m_state = 0; // buffer not ininited
-  long int m_mtcLast = 0; // MTC corresponding the current channel buffer state
-  ChannelTransitions m_channelTransitions;
-};
 
 //using namespace std;
 
@@ -95,49 +64,21 @@ class DmxPlayer : public OscReceiver
         //////////////////////////////////////////
         // Constructors and destructors
         DmxPlayer(  int port = 8000,
-                    long int initOffset = 0,
-                    long int finalWait = 0,
                     const string oscRoute = "",
-                    const string filePath = "dmx.xml",
-                    const string uuid = "",
                     const bool stopOnLostFlag = true );
         ~DmxPlayer( void );
         //////////////////////////////////////////
 
+        // OLA Methods
+        void run( void );
+        bool IsRunning() const {return olaServer->IsRunning();}
+
+    protected:
         // MTC receiver object
         MtcReceiver mtcReceiver;                        // Our MTC receiver object
 
-        // DMX Cue / XML manager
-        //DmxCue_v1 dmxCue;                               // Our CUE data structure
-
-        std::list<SceneTransitionInfo> m_scenes;        // SceneTransitionInfo sorted by MTC
-        std::map<uint32_t, ActiveUniverse> m_activeUniverses; // universe_id -> ActiveUniverse
-        SceneTransitionInfo m_nextScene;
-
-        // New field
-        std::list<DmxUniverse_v1> m_universes;
-
         // Playing head pointer
         static std::atomic<long int> playHead;          // Current playing head position in ms
-
-        // float headSpeed;                             // Head speed (TO DO)
-        // float headAccel;                             // Head acceleration (TO DO)
-        std::atomic<int> playheadControl = {1};         // Head reading direction
-
-        // Control flags and vars
-        long int headOffset = 0;                        // Playing head offset respect to MTC
-        long int endWaitTime = 0;                       // Do we wait when finished playing?
-        bool offsetChanged = false;                     // Was the offset changed via OSC?
-        long int endTimeStamp = 0;                      // Our finish timestamp to calculate end wait
-        static bool followingMtc;                       // Is player following MTC?
-        static bool fading;                             // Are we fading in the cue in or out?
-        static bool isSceneFull;                        // Is the cue already full?
-        static bool sceneSet;                           // Is the scene already set in the buffer?
-        static bool endOfPlay;                          // Have we finished everthing so we can exit?
-        static bool outOfFile;                          // Have we reached our end of play?
-
-        // Process identification
-        std::string playerUuid = "";                    // Payer UUID for identification porpouses
 
         bool stopOnMTCLost = true;                      // Do we go on playing if we lost MTC?
         bool mtcSignalLost = false;                     // Flag to check MTC signal lost?
@@ -147,39 +88,58 @@ class DmxPlayer : public OscReceiver
         ola::client::OlaClientWrapper olaClientWrapper;
         ola::io::SelectServer *olaServer = NULL;
 
-        // OLA Methods
-        void run( void );
+        // Data structures for managing scene transitions
 
-        // OLA send data callback
-        // static bool SendUniverseData(   ola::client::OlaClientWrapper *wrapper,
-        //                                 DmxUniverse_v1* universe );
+        using FrameValues = std::map<uint16_t, uint8_t>;      // channel_id -> value
+        using SceneValues = std::map<uint32_t, FrameValues>;  // universe_id -> FrameValues
+
+        struct SceneTransitionInfo
+        {
+          SceneValues m_sceneValues;
+          long int m_mtcStart = 0;
+          int m_fadeTime = 0;
+        };
+
+        struct ChannelTransition
+        {
+          long int mtc0 = 0;
+          long int mtc1 = 0;
+          uint8_t val0 = 0;
+          uint8_t val1 = 0;
+        };
+
+        using ChannelTransitions = std::map<uint16_t, ChannelTransition>; // channel_id -> ChannelTransition
+
+        struct ActiveUniverse
+        {
+          uint32_t  m_id;
+          ola::DmxBuffer m_channelsBuffer;
+          int m_state = 0;
+          ChannelTransitions m_channelTransitions;
+        };
+
+        // Scene transition data
+        std::list<SceneTransitionInfo> m_scenes;              // SceneTransitionInfo sorted by MTC
+        std::map<uint32_t, ActiveUniverse> m_activeUniverses; // universe_id -> ActiveUniverse
+        SceneTransitionInfo m_nextScene;
+        std::mutex m_scenesMutex;     // protects m_scenes
 
     protected:
         static bool SendUniverseData(   DmxPlayer* dp);
-                                    //(    DmxUniverse_v1* universe );
-                                    //
-        static void OnFetchDMX(DmxPlayer* dp, uint32_t univ_id, const ola::client::Result&, const ola::client::DMXMetadata&, const ola::DmxBuffer&);
+        static void OnFetchDMX(DmxPlayer* dp, uint32_t univ_id,
+            const ola::client::Result&, const ola::client::DMXMetadata&, const ola::DmxBuffer&);
 
         void processScenes();
+        void updateActiveUniverses();
+        long int convertTime(const std::string_view &time);
 
         long int startTimeStamp;
 
-        int m_fade = 100; // ms // TODO
         std::atomic<int> m_inBundle {0};
 
     //////////////////////////////////////////////////////////
     // Private members
     private:
-        // Config functions, maybe to be implemented
-        // bool loadNodeConfig( void );
-        // bool loadMediaConfig( void );
-
-        // Logging functions
-        // void log( std::string* message );
-
-        //////////////////////////////////////////////////////////
-        // Callbacks
-
         // Runtime value
         int runError = 0;
 
