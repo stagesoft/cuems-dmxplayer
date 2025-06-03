@@ -1,6 +1,6 @@
 /* LICENSE TEXT
 
-    dmxplayer for linux based on OLA, RtMidi and oscpack libraries to 
+    dmxplayer for linux based on OLA, RtMidi and oscpack libraries to
     play DMX cues with MTC sync. It also receives OSC commands to do
     some configurations dynamically.
     Copyright (C) 2020  Stage Lab & bTactic.
@@ -56,9 +56,9 @@ int main( int argc, char *argv[] ) {
     // Parse command line
     // If there are no parameters at all...
     if ( argc < 2 ) {
-        showcopyright();        
+        showcopyright();
         showusage();
-        
+
         logger->getLogger()->logError( "Exiting with result code: " + std::to_string(CUEMS_EXIT_WRONG_PARAMETERS) );
 
         exit( CUEMS_EXIT_WRONG_PARAMETERS );
@@ -86,8 +86,9 @@ int main( int argc, char *argv[] ) {
         exit( CUEMS_EXIT_WRONG_PARAMETERS );
     }
 
-    // --file or -f command parse and filename retreival and check
     fs::path filePath;
+#if 0
+    // --file or -f command parse and filename retreival and check
     // retreival
     if ( argParser->optionExists("--file") || argParser->optionExists("-f") ) {
         filePath = argParser->getParam("--file");
@@ -115,6 +116,7 @@ int main( int argc, char *argv[] ) {
 
             exit( CUEMS_EXIT_WRONG_DATA_FILE );
     }
+#endif
 
     // --port or -p command parse and port number retreival and check
     unsigned int portNumber = 0;
@@ -214,9 +216,9 @@ int main( int argc, char *argv[] ) {
 
     // Now that we now a more detailed information on the specific player
     // we change the logger slug to reflect this identification on the logs
-    logger->setNewSlug("d" + std::to_string(portNumber) + processUuid); 
+    logger->setNewSlug("d" + std::to_string(portNumber) + processUuid);
 
-    if ( filePath.empty() || portNumber == 0 ) {
+    if ( /*filePath.empty() || */ portNumber == 0 ) {
         std::cout << "Wrong parameters! Check usage..." << endl << endl;
         showcopyright();
         showusage();
@@ -226,10 +228,10 @@ int main( int argc, char *argv[] ) {
         exit( CUEMS_EXIT_FAILED_OLA_SETUP );
     }
     else {
-        myDmxPlayer = new DmxPlayer(    portNumber, 
+        myDmxPlayer = new DmxPlayer(    portNumber,
                                         offsetMilliseconds,
                                         endWaitMilliseconds,
-                                        "", 
+                                        "",
                                         filePath,
                                         processUuid,
                                         stopOnLostFlag );
@@ -273,25 +275,25 @@ void showcopyright( void ) {
 //////////////////////////////////////////////////////////
 void showusage( void ) {
     std::cout << "Usage :    dmxplayer --port <osc_port> [other options] <xml_file_path>" << endl << endl <<
-        "           COMPULSORY OPTIONS:" << endl << 
+        "           COMPULSORY OPTIONS:" << endl <<
         "           --file , -f <file_path> : xml file to read DMX scenes from." << endl <<
         "               File name can also be stated as the last argument with no option indicator." << endl << endl <<
         "           --port , -p <port_number> : OSC port to listen to." << endl << endl <<
-        "           OPTIONAL OPTIONS:" << endl << 
+        "           OPTIONAL OPTIONS:" << endl <<
         "           --ciml , -c : Continue If Mtc is Lost, flag to define that the player should continue" << endl <<
         "               if the MTC sync signal is lost. If not specified (standard mode) it stops on lost." << endl << endl <<
         "           --offset , -o <milliseconds>: playing time offset in milliseconds." << endl <<
-        "               Positive (+) or (-) negative integer indicating time displacement." << endl << 
+        "               Positive (+) or (-) negative integer indicating time displacement." << endl <<
         "               Default is 0." << endl << endl <<
         "           --uuid , -u <uuid_string> : indicates a unique identifier for the dmxplayer to be" << endl <<
         "               recognized in different internal identification porpouses such as OLA environment." << endl << endl <<
         "           --wait , -w <milliseconds> : waiting time after reaching the end of the DMX scene and" << endl <<
         "               before quiting the program. Default is 0. -1 indicates the program remains" << endl <<
         "               running till SIG-TERM or OSC command /quit is received." << endl << endl <<
-        "           OTHER OPTIONS:" << endl << 
+        "           OTHER OPTIONS:" << endl <<
         "           --show : shows license disclaimers." << endl <<
-        "               w : shows warranty disclaimer." << endl << 
-        "               c : shows copyright disclaimer." << endl << endl << 
+        "               w : shows warranty disclaimer." << endl <<
+        "               c : shows copyright disclaimer." << endl << endl <<
         "           Default audio device params are : 2 ch x 44.1K -> default device." << endl << endl <<
         "           audioplayer uses Jack Audio environment, make sure it's running." << endl << endl;
 }
@@ -320,7 +322,7 @@ void showcopydisclaimer( void ) {
         "This program is distributed in the hope that it will be useful," << endl <<
         "but WITHOUT ANY WARRANTY; without even the implied warranty of" << endl <<
         "MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the" << endl <<
-        "GNU General Public License for more details." << endl << endl << 
+        "GNU General Public License for more details." << endl << endl <<
         "You should have received a copy of the GNU General Public License" << endl <<
         "along with this program.  If not, see <https://www.gnu.org/licenses/>." << endl << endl;
 }

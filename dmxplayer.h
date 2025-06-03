@@ -1,6 +1,6 @@
 /* LICENSE TEXT
 
-    dmxplayer for linux based on OLA, RtMidi and oscpack libraries to 
+    dmxplayer for linux based on OLA, RtMidi and oscpack libraries to
     play DMX cues with MTC sync. It also receives OSC commands to do
     some configurations dynamically.
     Copyright (C) 2020  Stage Lab & bTactic.
@@ -38,6 +38,7 @@
 #include <chrono>
 #include <csignal>
 #include <vector>
+#include <list>
 #include <iostream>
 #include <iomanip>
 #include <rtmidi/RtMidi.h>
@@ -55,7 +56,36 @@
 #include "./cuemslogger/cuemslogger.h"
 #include "cuems_errors.h"
 
-using namespace std;
+using FrameValues = std::map<uint16_t, uint8_t>;    // channel_id -> value
+using SceneValues = std::map<uint32_t, FrameValues>;  // universe_id -> FrameValues
+
+struct SceneTransitionInfo
+{
+  SceneValues m_sceneValues;
+  long int m_mtcStart = 0;
+  int m_fadeTime = 0;
+};
+
+struct ChannelTransition
+{
+  long int mtc0 = 0;
+  long int mtc1 = 0;
+  uint8_t val0 = 0;
+  uint8_t val1 = 0;
+};
+
+using ChannelTransitions = std::map<uint16_t, ChannelTransition>; // channel_id -> ChannelTransition
+
+struct ActiveUniverse
+{
+  uint32_t  m_id;
+  ola::DmxBuffer m_channelsBuffer;
+  int m_state = 0; // buffer not ininited
+  long int m_mtcLast = 0; // MTC corresponding the current channel buffer state
+  ChannelTransitions m_channelTransitions;
+};
+
+//using namespace std;
 
 class DmxPlayer : public OscReceiver
 {
@@ -64,10 +94,10 @@ class DmxPlayer : public OscReceiver
     public:
         //////////////////////////////////////////
         // Constructors and destructors
-        DmxPlayer(  int port = 8000, 
+        DmxPlayer(  int port = 8000,
                     long int initOffset = 0,
                     long int finalWait = 0,
-                    const string oscRoute = "", 
+                    const string oscRoute = "",
                     const string filePath = "dmx.xml",
                     const string uuid = "",
                     const bool stopOnLostFlag = true );
@@ -78,7 +108,14 @@ class DmxPlayer : public OscReceiver
         MtcReceiver mtcReceiver;                        // Our MTC receiver object
 
         // DMX Cue / XML manager
-        DmxCue_v1 dmxCue;                               // Our CUE data structure
+        //DmxCue_v1 dmxCue;                               // Our CUE data structure
+
+        std::list<SceneTransitionInfo> m_scenes;        // SceneTransitionInfo sorted by MTC
+        std::map<uint32_t, ActiveUniverse> m_activeUniverses; // universe_id -> ActiveUniverse
+        SceneTransitionInfo m_nextScene;
+
+        // New field
+        std::list<DmxUniverse_v1> m_universes;
 
         // Playing head pointer
         static std::atomic<long int> playHead;          // Current playing head position in ms
@@ -86,7 +123,7 @@ class DmxPlayer : public OscReceiver
         // float headSpeed;                             // Head speed (TO DO)
         // float headAccel;                             // Head acceleration (TO DO)
         std::atomic<int> playheadControl = {1};         // Head reading direction
-        
+
         // Control flags and vars
         long int headOffset = 0;                        // Playing head offset respect to MTC
         long int endWaitTime = 0;                       // Do we wait when finished playing?
@@ -112,15 +149,23 @@ class DmxPlayer : public OscReceiver
 
         // OLA Methods
         void run( void );
-        
+
         // OLA send data callback
-        // static bool SendUniverseData(   ola::client::OlaClientWrapper *wrapper, 
+        // static bool SendUniverseData(   ola::client::OlaClientWrapper *wrapper,
         //                                 DmxUniverse_v1* universe );
 
-        static bool SendUniverseData(   DmxPlayer* dp, 
-                                        DmxUniverse_v1* universe );
+    protected:
+        static bool SendUniverseData(   DmxPlayer* dp);
+                                    //(    DmxUniverse_v1* universe );
+                                    //
+        static void OnFetchDMX(DmxPlayer* dp, uint32_t univ_id, const ola::client::Result&, const ola::client::DMXMetadata&, const ola::DmxBuffer&);
+
+        void processScenes();
 
         long int startTimeStamp;
+
+        int m_fade = 100; // ms // TODO
+        std::atomic<int> m_inBundle {0};
 
     //////////////////////////////////////////////////////////
     // Private members
@@ -142,8 +187,11 @@ class DmxPlayer : public OscReceiver
     // Protected members
     protected:
         // OSC messages processor
-        virtual void ProcessMessage(    const osc::ReceivedMessage& m, 
+        virtual void ProcessMessage(    const osc::ReceivedMessage& m,
                                     const IpEndpointName& /*remoteEndpoint*/ );
+
+        virtual void ProcessBundle( const osc::ReceivedBundle& b,
+                                    const IpEndpointName& remoteEndpoint );
 
 
 };
