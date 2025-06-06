@@ -41,10 +41,14 @@ std::atomic<long int> DmxPlayer::playHead(0);
 //////////////////////////////////////////////////////////
 DmxPlayer::DmxPlayer(   int port,
                         const string oscRoute,
-                        const bool stopOnLostFlag )
+                        const bool stopOnLostFlag,
+                        const bool followMTCFlag,
+                        const std::string &client_name)
                         :   // Members initialization
                         OscReceiver(port, oscRoute),
-                        stopOnMTCLost(stopOnLostFlag)
+                        mtcReceiver(RtMidiIn::LINUX_ALSA, client_name),
+                        stopOnMTCLost(stopOnLostFlag),
+                        followMTC(followMTCFlag)
 {
     //////////////////////////////////////////////////////////
     // Set up working class members
@@ -129,6 +133,10 @@ void DmxPlayer::ProcessMessage( const osc::ReceivedMessage& m,
         } else if ( (string)m.AddressPattern() == (OscReceiver::oscAddress + "/stoponlost") ) {
             CuemsLogger::getLogger()->logInfo("OSC: /stoponlost command");
             stopOnMTCLost = !stopOnMTCLost;
+        } else if ( (string)m.AddressPattern() == (OscReceiver::oscAddress + "/mtcfollow") ) {
+            CuemsLogger::getLogger()->logInfo("OSC: /mtcfollow command");
+            followMTC = !followMTC;
+
         // We only accept the following commands from a bundle
         } else if (0 < m_inBundle) {
           if ( (string)m.AddressPattern() == (OscReceiver::oscAddress + "/frame") ) {
@@ -235,15 +243,20 @@ void DmxPlayer::OnFetchDMX(DmxPlayer* dp, uint32_t univ_id, const ola::client::R
 
 //////////////////////////////////////////////////////////
 bool DmxPlayer::SendUniverseData(DmxPlayer* dp) {
+    // If we don't follow, just skip it entirely
+    if (!dp->followMTC) {
+      return true;
+    }
     // If we are receiving MTC and following it...
     // Or we are not receiving it and we do not stop on its lost
     // And we haven't reached the end of playing time...
-    if (    ( (dp->mtcReceiver.isTimecodeRunning) ||
+    bool timecode_running = dp->mtcReceiver.isTimecodeActive(); //isTimecodeRunning
+    if ( ( timecode_running ||
             (dp->mtcSignalLost && !dp->stopOnMTCLost) )   ) {
 
         // Check play control flags
         // If there is MTC signal and we haven't started, check it
-        if ( dp->mtcReceiver.isTimecodeRunning ) {
+        if ( timecode_running ) {
             if ( !dp->mtcSignalStarted ) {
                 CuemsLogger::getLogger()->logInfo("MTC -> Play started");
                 dp->mtcSignalStarted = true;
@@ -258,13 +271,12 @@ bool DmxPlayer::SendUniverseData(DmxPlayer* dp) {
             dp->mtcSignalLost = false;
         }
 
-        // TODO: accurate handle of head postition and mtc lost handling
-        dp->playHead = dp->mtcReceiver.mtcHead;
+        dp->playHead = dp->mtcReceiver.estimatedCurrentHead();
         dp->processScenes();
         dp->updateActiveUniverses();
     }
     else {
-        if ( ! dp->mtcReceiver.isTimecodeRunning && dp->mtcSignalStarted && !dp->mtcSignalLost ) {
+        if ( ! timecode_running && dp->mtcSignalStarted && !dp->mtcSignalLost ) {
             CuemsLogger::getLogger()->logInfo("MTC signal lost");
             dp->mtcSignalLost = true;
         }
@@ -278,7 +290,7 @@ void DmxPlayer::processScenes() {
   std::lock_guard guard(m_scenesMutex);
   for (auto it = m_scenes.begin(); it != m_scenes.end(); ) {
     SceneTransitionInfo &sc = *it++;
-    if (sc.m_mtcStart > playHead) {
+    if (sc.m_mtcStart > playHead + universeFetchLookAheadTime) {
       // No more scenes to process now
       break;
     }
@@ -296,7 +308,7 @@ void DmxPlayer::processScenes() {
         active_universe.m_id = univ_id;
         active_universe.m_state = 1;
         olaClientWrapper.GetClient()->FetchDMX(univ_id, ola::NewSingleCallback(&DmxPlayer::OnFetchDMX, this, univ_id));
-        std::cout << "fetch sent for " << univ_id << std::endl;
+        std::cout << "fetch requested for universe " << univ_id << std::endl;
       }
       else if (2 == active_universe.m_state) {
         // Buffer is fetched, ready to go

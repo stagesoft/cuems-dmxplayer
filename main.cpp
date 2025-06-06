@@ -116,11 +116,8 @@ int main( int argc, char *argv[] ) {
         if ( uuidParam.empty() ) uuidParam = argParser->getParam("-u");
 
         if ( uuidParam.empty() ) {
-            // Not valid port number specified after port option
             std::cout << "Not valid uuid string after --uuid or -u option." << endl;
-
             logger->getLogger()->logError( "Exiting with result code: " + std::to_string(CUEMS_EXIT_WRONG_PARAMETERS) );
-
             exit( CUEMS_EXIT_WRONG_PARAMETERS );
         }
         else {
@@ -135,6 +132,13 @@ int main( int argc, char *argv[] ) {
             stopOnLostFlag = false ;
     }
 
+    // --mtcfollow or -m command parse and flag set
+    bool followMTCFlag = false;
+
+    if ( argParser->optionExists("--mtcfollow") || argParser->optionExists("-m") ) {
+            followMTCFlag = true;
+    }
+
     delete argParser;
 
     // End of command line parsing
@@ -142,7 +146,14 @@ int main( int argc, char *argv[] ) {
 
     // Now that we now a more detailed information on the specific player
     // we change the logger slug to reflect this identification on the logs
-    logger->setNewSlug("d" + std::to_string(portNumber) + processUuid);
+    // If we got a uiid from command line options use only that
+    if (!processUuid.empty()){
+        logger->setNewSlug("d" + processUuid);
+    } else {
+        logger->setNewSlug("d" + std::to_string(portNumber));
+        // and set processUuid to port number for midi visibility
+        processUuid = std::to_string(portNumber);
+    }
 
     if ( portNumber == 0 ) {
         std::cout << "Wrong parameters! Check usage..." << endl << endl;
@@ -154,7 +165,7 @@ int main( int argc, char *argv[] ) {
         exit( CUEMS_EXIT_FAILED_OLA_SETUP );
     }
     else {
-        myDmxPlayer = new DmxPlayer( portNumber, "", stopOnLostFlag );
+        myDmxPlayer = new DmxPlayer( portNumber, "", stopOnLostFlag, followMTCFlag, "DMX_Player-" + processUuid );
     }
 
     //////////////////////////////////////////////////////////
@@ -199,6 +210,8 @@ void showusage( void ) {
         "           OPTIONAL OPTIONS:" << endl <<
         "           --ciml , -c : Continue If Mtc is Lost, flag to define that the player should continue" << endl <<
         "               if the MTC sync signal is lost. If not specified (standard mode) it stops on lost." << endl << endl <<
+        "           --mtcfollow , -m : Start the player following MTC directly. Default is not to follow until" << endl <<
+        "               it is indicated to the player through OSC." << endl << endl <<
         "           --uuid , -u <uuid_string> : indicates a unique identifier for the dmxplayer to be" << endl <<
         "               recognized in different internal identification porpouses such as OLA environment." << endl << endl <<
         "           OTHER OPTIONS:" << endl <<

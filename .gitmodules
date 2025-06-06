@@ -6,4 +6,4 @@
 	url = https://github.com/stagesoft/mtcreceiver.git
 [submodule "oscreceiver"]
 	path = oscreceiver
-	url = git@github.com:stagesoft/oscreceiver.git
+	url = https://github.com/stagesoft/oscreceiver.git

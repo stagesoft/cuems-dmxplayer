@@ -65,7 +65,10 @@ class DmxPlayer : public OscReceiver
         // Constructors and destructors
         DmxPlayer(  int port = 8000,
                     const string oscRoute = "",
-                    const bool stopOnLostFlag = true );
+                    const bool stopOnLostFlag = true,
+                    const bool followMTCFlag = false,
+                    const std::string &client_name = "DMX_Player"
+                    );
         ~DmxPlayer( void );
         //////////////////////////////////////////
 
@@ -83,6 +86,7 @@ class DmxPlayer : public OscReceiver
         bool stopOnMTCLost = true;                      // Do we go on playing if we lost MTC?
         bool mtcSignalLost = false;                     // Flag to check MTC signal lost?
         bool mtcSignalStarted = false;                  // Flag to check MTC signal started?
+        bool followMTC = false;                         // Do we follow MTC or paused
 
         // OLA components
         ola::client::OlaClientWrapper olaClientWrapper;
@@ -134,6 +138,8 @@ class DmxPlayer : public OscReceiver
         long int convertTime(const std::string_view &time);
 
         long int startTimeStamp;
+        // Start fetching universe data 50ms before transition start time
+        long int universeFetchLookAheadTime = 50;
 
         std::atomic<int> m_inBundle {0};
 

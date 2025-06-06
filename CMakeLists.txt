@@ -7,17 +7,22 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 #include_directories("")
 add_compile_options(-Wall -Wextra)
 
+# Subdirectories
+add_subdirectory(oscreceiver)
+add_subdirectory(mtcreceiver)
+add_subdirectory(cuemslogger)
+
 set (dmxplayer_SRC
   dmxplayer.cpp
   commandlineparser.cpp
   main.cpp
-  oscreceiver/oscreceiver.cpp
-  cuemslogger/cuemslogger.cpp
-  mtcreceiver/mtcreceiver.cpp
 )
 
 set (dmxplayer_LIBS
-  -lrtmidi -lpthread -lxerces-c -lstdc++fs -lola -lolacommon -loscpack
+  cuemslogger
+  mtcreceiver
+  oscreceiver
+  -lrtmidi -lpthread -lxerces-c -lstdc++fs -lola -lolacommon
 )
 
 add_executable(dmxplayer ${dmxplayer_SRC})
