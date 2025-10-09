@@ -29,6 +29,7 @@
 //////////////////////////////////////////////////////////
 
 #include "main.h"
+#include "cuems_constants.h"
 
 using namespace std;
 namespace fs = std::filesystem;
@@ -103,7 +104,19 @@ int main( int argc, char *argv[] ) {
             exit( CUEMS_EXIT_WRONG_PARAMETERS );
         }
         else {
-            portNumber = std::stoi( portParam );
+            try {
+                portNumber = std::stoi( portParam );
+                if (portNumber < CuemsConstants::MIN_PORT_NUMBER || portNumber > CuemsConstants::MAX_PORT_NUMBER) {
+                    logger->getLogger()->logError( "Port number out of valid range: " + std::to_string(portNumber) );
+                    exit( CUEMS_EXIT_WRONG_PARAMETERS );
+                }
+            } catch (const std::invalid_argument& e) {
+                logger->getLogger()->logError( "Invalid port number: " + portParam );
+                exit( CUEMS_EXIT_WRONG_PARAMETERS );
+            } catch (const std::out_of_range& e) {
+                logger->getLogger()->logError( "Port number out of range: " + portParam );
+                exit( CUEMS_EXIT_WRONG_PARAMETERS );
+            }
         }
     }
 
@@ -116,7 +129,6 @@ int main( int argc, char *argv[] ) {
         if ( uuidParam.empty() ) uuidParam = argParser->getParam("-u");
 
         if ( uuidParam.empty() ) {
-            std::cout << "Not valid uuid string after --uuid or -u option." << endl;
             logger->getLogger()->logError( "Exiting with result code: " + std::to_string(CUEMS_EXIT_WRONG_PARAMETERS) );
             exit( CUEMS_EXIT_WRONG_PARAMETERS );
         }

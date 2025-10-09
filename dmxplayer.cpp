@@ -29,6 +29,7 @@
 //////////////////////////////////////////////////////////
 
 #include "dmxplayer.h"
+#include "cuems_constants.h"
 #include <thread>
 #include <charconv>
 
@@ -75,7 +76,7 @@ DmxPlayer::DmxPlayer(   int port,
     else {
         // Let's set a callback for each universe deailed in the scene
         CuemsLogger::getLogger()->logInfo("Setting OLA callback");
-        olaServer->RegisterRepeatingTimeout( 10, ola::NewCallback( &DmxPlayer::SendUniverseData, this ) );
+        olaServer->RegisterRepeatingTimeout( CuemsConstants::OLA_CALLBACK_TIMEOUT_MS, ola::NewCallback( &DmxPlayer::SendUniverseData, this ) );
     }
 
 }
@@ -144,12 +145,24 @@ void DmxPlayer::ProcessMessage( const osc::ReceivedMessage& m,
               auto stream = m.ArgumentStream();
               int universe_id;
               stream >> universe_id;
+              if (universe_id < CuemsConstants::MIN_UNIVERSE_ID || universe_id > CuemsConstants::MAX_UNIVERSE_ID) {
+                  CuemsLogger::getLogger()->logWarning("OSC: Invalid universe_id in /frame command: " + std::to_string(universe_id));
+                  return;
+              }
               std::cout << "OSC: /frame universe=" << universe_id << std::endl;
               auto &frame_values = m_nextScene.m_sceneValues[universe_id];
               while (!stream.Eos()) {
                 int channel = -1;
                 int value = -1;
-                stream >> channel>> value;
+                stream >> channel >> value;
+                if (channel < CuemsConstants::MIN_CHANNEL_ID || channel > CuemsConstants::MAX_CHANNEL_ID) {
+                    CuemsLogger::getLogger()->logWarning("OSC: Invalid channel in /frame command: " + std::to_string(channel));
+                    continue;
+                }
+                if (value < CuemsConstants::MIN_DMX_VALUE || value > CuemsConstants::MAX_DMX_VALUE) {
+                    CuemsLogger::getLogger()->logWarning("OSC: Invalid value in /frame command: " + std::to_string(value));
+                    continue;
+                }
                 frame_values[channel] = value;
               }
           } else if ( (string)m.AddressPattern() == (OscReceiver::oscAddress + "/fade_time") ) {

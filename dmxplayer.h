@@ -53,6 +53,7 @@
 
 #include "./cuemslogger/cuemslogger.h"
 #include "cuems_errors.h"
+#include "cuems_constants.h"
 
 //using namespace std;
 
@@ -138,8 +139,8 @@ class DmxPlayer : public OscReceiver
         long int convertTime(const std::string_view &time);
 
         long int startTimeStamp;
-        // Start fetching universe data 50ms before transition start time
-        long int universeFetchLookAheadTime = 50;
+        // Start fetching universe data before transition start time
+        long int universeFetchLookAheadTime = CuemsConstants::UNIVERSE_FETCH_LOOK_AHEAD_MS;
 
         std::atomic<int> m_inBundle {0};
 
