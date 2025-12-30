@@ -1,0 +1,26 @@
+Source: cuems-dmxplayer
+Section: sound
+Priority: optional
+Maintainer: Ion Reguera <ion@stagelab.coop>
+Build-Depends: debhelper-compat (= 13),
+               cmake (>= 3.20),
+               libola-dev,
+               librtmidi-dev,
+               libxerces-c-dev,
+               build-essential
+Standards-Version: 4.6.1
+Homepage: https://github.com/stagelab/cuems-dmxplayer
+
+Package: cuems-dmxplayer
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends},
+         librtmidi6,
+         libola1
+Description: DMX player for Linux with MTC sync and OSC support
+ dmxplayer is a Linux-based DMX cue player that uses OLA (Open Lighting
+ Architecture), RtMidi, and OSC libraries to play DMX cues with MTC
+ (MIDI Time Code) synchronization. It also receives OSC commands to
+ configure settings dynamically.
+ .
+ This package provides the main dmxplayer binary.
+
