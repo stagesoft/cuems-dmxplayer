@@ -27,4 +27,9 @@ set (dmxplayer_LIBS
 
 add_executable(dmxplayer ${dmxplayer_SRC})
 target_link_libraries(dmxplayer ${dmxplayer_LIBS})
+target_compile_definitions(mtcreceiver PUBLIC HAVE_CUEMS_LOGGER)
 #target_link_options(dmxplayer PRIVATE -fsanitize=address)
+
+install(TARGETS dmxplayer
+        RUNTIME DESTINATION bin
+)

@@ -52,6 +52,11 @@ DmxPlayer::DmxPlayer(   int port,
                         followMTC(followMTCFlag)
 {
     //////////////////////////////////////////////////////////
+    // Enable network mode for MTC over rtpmidid
+    // This uses more tolerant timeouts for network latency/jitter
+    MtcReceiver::setNetworkMode(true);
+
+    //////////////////////////////////////////////////////////
     // Set up working class members
 
     // Starting OLA logging
