@@ -141,7 +141,14 @@ void DmxPlayer::ProcessMessage( const osc::ReceivedMessage& m,
             stopOnMTCLost = !stopOnMTCLost;
         } else if ( (string)m.AddressPattern() == (OscReceiver::oscAddress + "/mtcfollow") ) {
             CuemsLogger::getLogger()->logInfo("OSC: /mtcfollow command");
-            followMTC = !followMTC;
+            auto stream = m.ArgumentStream();
+            if (!stream.Eos()) {
+              int val = 0;
+              stream >> val >> osc::EndMessage;
+              followMTC = (val != 0);
+            } else {
+              followMTC = !followMTC;  // no argument: legacy toggle
+            }
 
         // We only accept the following commands from a bundle
         } else if (0 < m_inBundle) {
@@ -261,7 +268,7 @@ void DmxPlayer::OnFetchDMX(DmxPlayer* dp, uint32_t univ_id, const ola::client::R
 
 //////////////////////////////////////////////////////////
 bool DmxPlayer::SendUniverseData(DmxPlayer* dp) {
-    // If we don't follow, just skip it entirely
+    // If we don't follow MTC, do nothing (no timecode = no output)
     if (!dp->followMTC) {
       return true;
     }
@@ -374,16 +381,22 @@ void DmxPlayer::updateActiveUniverses()
     }
     for (auto it_trs = univ.m_channelTransitions.begin(); it_trs != univ.m_channelTransitions.end();) {
       auto &trs = it_trs->second;
-      double ph = 1.0 * (playHead - trs.mtc0) / (trs.mtc1 - trs.mtc0);
       bool ch_remove = false;
-      if (0.0 < ph) {
-        if (1.0 > ph) {
-          uint8_t v = std::round(trs.val0 + ph * (trs.val1 - trs.val0));
-          univ.m_channelsBuffer.SetChannel(it_trs->first, v);
-        }
-        else {
-          univ.m_channelsBuffer.SetChannel(it_trs->first, trs.val1);
-          ch_remove = true;
+      if (trs.mtc1 <= trs.mtc0) {
+        // Instant transition (fade time 0)
+        univ.m_channelsBuffer.SetChannel(it_trs->first, trs.val1);
+        ch_remove = true;
+      } else {
+        double ph = 1.0 * (playHead - trs.mtc0) / (trs.mtc1 - trs.mtc0);
+        if (0.0 < ph) {
+          if (1.0 > ph) {
+            uint8_t v = std::round(trs.val0 + ph * (trs.val1 - trs.val0));
+            univ.m_channelsBuffer.SetChannel(it_trs->first, v);
+          }
+          else {
+            univ.m_channelsBuffer.SetChannel(it_trs->first, trs.val1);
+            ch_remove = true;
+          }
         }
       }
       if (ch_remove) {
