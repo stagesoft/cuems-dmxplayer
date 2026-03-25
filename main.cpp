@@ -177,7 +177,14 @@ int main( int argc, char *argv[] ) {
         exit( CUEMS_EXIT_FAILED_OLA_SETUP );
     }
     else {
-        myDmxPlayer = new DmxPlayer( portNumber, "", stopOnLostFlag, followMTCFlag, "DMX_Player-" + processUuid );
+        try {
+            myDmxPlayer = new DmxPlayer( portNumber, "", stopOnLostFlag, followMTCFlag, "DMX_Player-" + processUuid );
+        }
+        catch ( const std::exception& e ) {
+            logger->logError( "Failed to create DmxPlayer: " + std::string(e.what()) );
+            delete logger;
+            exit( CUEMS_EXIT_INIT_FAILED );
+        }
     }
 
     //////////////////////////////////////////////////////////
