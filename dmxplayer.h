@@ -128,6 +128,7 @@ class DmxPlayer : public OscReceiver
         std::map<uint32_t, ActiveUniverse> m_activeUniverses; // universe_id -> ActiveUniverse
         SceneTransitionInfo m_nextScene;
         std::mutex m_scenesMutex;     // protects m_scenes
+        std::mutex m_universesMutex; // protects m_activeUniverses
 
     protected:
         static bool SendUniverseData(   DmxPlayer* dp);

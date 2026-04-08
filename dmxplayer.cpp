@@ -52,11 +52,6 @@ DmxPlayer::DmxPlayer(   int port,
                         followMTC(followMTCFlag)
 {
     //////////////////////////////////////////////////////////
-    // Enable network mode for MTC over rtpmidid
-    // This uses more tolerant timeouts for network latency/jitter
-    MtcReceiver::setNetworkMode(true);
-
-    //////////////////////////////////////////////////////////
     // Set up working class members
 
     // Starting OLA logging
@@ -148,6 +143,23 @@ void DmxPlayer::ProcessMessage( const osc::ReceivedMessage& m,
               followMTC = (val != 0);
             } else {
               followMTC = !followMTC;  // no argument: legacy toggle
+            }
+
+        // Blackout: clear all scenes and fades, send zeros to OLA
+        } else if ( (string)m.AddressPattern() == (OscReceiver::oscAddress + "/blackout") ) {
+            CuemsLogger::getLogger()->logInfo("OSC: /blackout command");
+            {
+                std::lock_guard guard(m_scenesMutex);
+                m_scenes.clear();
+            }
+            {
+                std::lock_guard guard(m_universesMutex);
+                for (auto &[univ_id, univ] : m_activeUniverses) {
+                    univ.m_channelTransitions.clear();
+                    univ.m_channelsBuffer.Blackout();
+                    olaClientWrapper.GetClient()->SendDMX(univ.m_id, univ.m_channelsBuffer, ola::client::SendDMXArgs());
+                }
+                m_activeUniverses.clear();
             }
 
         // We only accept the following commands from a bundle
@@ -268,8 +280,12 @@ void DmxPlayer::OnFetchDMX(DmxPlayer* dp, uint32_t univ_id, const ola::client::R
 
 //////////////////////////////////////////////////////////
 bool DmxPlayer::SendUniverseData(DmxPlayer* dp) {
-    // If we don't follow MTC, do nothing (no timecode = no output)
+    // When not following MTC: still process queued scenes and send to OLA
+    // (e.g. "press Go" without timecode — scene is applied immediately)
     if (!dp->followMTC) {
+      dp->playHead = 0;
+      dp->processScenes();
+      dp->updateActiveUniverses();
       return true;
     }
     // If we are receiving MTC and following it...
@@ -372,6 +388,7 @@ void DmxPlayer::processScenes() {
 //////////////////////////////////////////////////////////
 void DmxPlayer::updateActiveUniverses()
 {
+  std::lock_guard guard(m_universesMutex);
   for (auto it = m_activeUniverses.begin(); it != m_activeUniverses.end();) {
     auto &univ = it->second;
     // skip non-ready universes
