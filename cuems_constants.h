@@ -60,6 +60,10 @@ constexpr int OLA_CALLBACK_TIMEOUT_IDLE_MS = 200;
 // Universe fetch look ahead time (ms)
 constexpr int UNIVERSE_FETCH_LOOK_AHEAD_MS = 50;
 
+// OLA reconnection constants
+constexpr int OLA_RECONNECT_INITIAL_DELAY_MS = 500;
+constexpr int OLA_RECONNECT_MAX_DELAY_MS = 5000;
+
 } // namespace CuemsConstants
 
 #endif // CUEMS_CONSTANTS_H

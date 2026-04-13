@@ -60,26 +60,17 @@ DmxPlayer::DmxPlayer(   int port,
     // Starting OLA logging
     ola::InitLogging(ola::OLA_LOG_WARN, ola::OLA_LOG_STDERR);
 
-    if (!olaClientWrapper.Setup()) {
-        std::cerr << "OLA setup failed" << endl;
-        CuemsLogger::getLogger()->logError("OLA setup failed!");
-        CuemsLogger::getLogger()->logError( "Exiting with result code: " + std::to_string(CUEMS_EXIT_FAILED_OLA_SETUP) );
-
-        exit( CUEMS_EXIT_FAILED_OLA_SETUP );
-    }
-
-    olaServer = olaClientWrapper.GetSelectServer();
-    if ( olaServer == NULL ) {
-        std::cerr << "OLA server not reached" << endl;
-        CuemsLogger::getLogger()->logError("OLA server failed!");
-        CuemsLogger::getLogger()->logError( "Exiting with result code: " + std::to_string(CUEMS_EXIT_FAILED_OLA_SEL_SERV) );
-
-        exit( CUEMS_EXIT_FAILED_OLA_SEL_SERV );
-    }
-    else {
-        // Start in idle mode — switch to active when scenes arrive
-        CuemsLogger::getLogger()->logInfo("Setting OLA callback");
-        registerTimer(/*idle=*/true);
+    // OLA connection is established in run() which handles reconnection.
+    // Validate OLA is reachable at startup for fail-fast behavior.
+    {
+        ola::client::OlaClientWrapper probe;
+        if (!probe.Setup()) {
+            std::cerr << "OLA setup failed" << endl;
+            CuemsLogger::getLogger()->logError("OLA setup failed!");
+            CuemsLogger::getLogger()->logError( "Exiting with result code: " + std::to_string(CUEMS_EXIT_FAILED_OLA_SETUP) );
+            exit( CUEMS_EXIT_FAILED_OLA_SETUP );
+        }
+        // probe is destroyed here — run() will create the real connection
     }
 
 }
@@ -121,7 +112,7 @@ void DmxPlayer::ProcessBundle( const osc::ReceivedBundle& b,
 
     // If on idle timer, wake up the SelectServer to switch to active (10ms).
     // Execute() is thread-safe and interrupts select() immediately.
-    if (m_isIdleTimer && olaServer != nullptr) {
+    if (m_isIdleTimer && olaServer != nullptr && m_olaConnected) {
       olaServer->Execute(
           ola::NewSingleCallback(this, &DmxPlayer::switchToActiveTimer));
     }
@@ -169,7 +160,9 @@ void DmxPlayer::ProcessMessage( const osc::ReceivedMessage& m,
                 for (auto &[univ_id, univ] : m_activeUniverses) {
                     univ.m_channelTransitions.clear();
                     univ.m_channelsBuffer.Blackout();
-                    olaClientWrapper.GetClient()->SendDMX(univ.m_id, univ.m_channelsBuffer, ola::client::SendDMXArgs());
+                    if (m_olaConnected) {
+                        m_olaWrapper->GetClient()->SendDMX(univ.m_id, univ.m_channelsBuffer, ola::client::SendDMXArgs());
+                    }
                 }
                 m_activeUniverses.clear();
             }
@@ -372,7 +365,7 @@ void DmxPlayer::processScenes() {
         // Just created, init it first
         active_universe.m_id = univ_id;
         active_universe.m_state = 1;
-        olaClientWrapper.GetClient()->FetchDMX(univ_id, ola::NewSingleCallback(&DmxPlayer::OnFetchDMX, this, univ_id));
+        m_olaWrapper->GetClient()->FetchDMX(univ_id, ola::NewSingleCallback(&DmxPlayer::OnFetchDMX, this, univ_id));
         std::cout << "fetch requested for universe " << univ_id << std::endl;
       }
       else if (2 == active_universe.m_state) {
@@ -448,7 +441,9 @@ void DmxPlayer::updateActiveUniverses()
       }
     }
 
-    olaClientWrapper.GetClient()->SendDMX(univ.m_id, univ.m_channelsBuffer, ola::client::SendDMXArgs());
+    if (m_olaConnected) {
+        m_olaWrapper->GetClient()->SendDMX(univ.m_id, univ.m_channelsBuffer, ola::client::SendDMXArgs());
+    }
 
     if (univ.m_channelTransitions.empty()) {
       it = m_activeUniverses.erase(it);
@@ -498,6 +493,76 @@ void DmxPlayer::switchToActiveTimer() {
 }
 
 //////////////////////////////////////////////////////////
+bool DmxPlayer::setupOlaConnection() {
+    CuemsLogger::getLogger()->logInfo("Setting up OLA connection...");
+
+    m_olaWrapper = std::make_unique<ola::client::OlaClientWrapper>();
+
+    if (!m_olaWrapper->Setup()) {
+        CuemsLogger::getLogger()->logError("OLA setup failed");
+        m_olaWrapper.reset();
+        return false;
+    }
+
+    olaServer = m_olaWrapper->GetSelectServer();
+    if (olaServer == nullptr) {
+        CuemsLogger::getLogger()->logError("OLA SelectServer is null");
+        m_olaWrapper.reset();
+        return false;
+    }
+
+    // Override the default close behavior (which just calls Terminate).
+    // We set our flag first so the run() loop knows this is a disconnection.
+    m_olaWrapper->SetCloseCallback(
+        ola::NewCallback(this, &DmxPlayer::onOlaConnectionClosed));
+
+    // Start in idle mode — switch to active when scenes arrive
+    registerTimer(/*idle=*/!hasActiveWork());
+
+    m_olaConnected = true;
+    CuemsLogger::getLogger()->logInfo("OLA connection established");
+    return true;
+}
+
+//////////////////////////////////////////////////////////
+void DmxPlayer::teardownOlaConnection() {
+    m_olaConnected = false;
+    m_currentTimeoutId = ola::thread::INVALID_TIMEOUT;
+    m_isIdleTimer = false;
+    olaServer = nullptr;
+    m_olaWrapper.reset();
+}
+
+//////////////////////////////////////////////////////////
+void DmxPlayer::onOlaConnectionClosed() {
+    CuemsLogger::getLogger()->logWarning("OLA connection closed");
+    m_olaConnected = false;
+    if (olaServer) {
+        olaServer->Terminate();
+    }
+}
+
+//////////////////////////////////////////////////////////
+void DmxPlayer::purgeStaleScenes() {
+    long int now = playHead.load();
+
+    {
+        std::lock_guard guard(m_scenesMutex);
+        m_scenes.remove_if([now](const SceneTransitionInfo &sc) {
+            return sc.m_mtcStart < now - 100;
+        });
+    }
+
+    {
+        // Clear active universes — pending FetchDMX callbacks from the old
+        // connection will never fire, so entries stuck in state 1 must be reset.
+        // Universes will be re-fetched on the next processScenes() cycle.
+        std::lock_guard guard(m_universesMutex);
+        m_activeUniverses.clear();
+    }
+}
+
+//////////////////////////////////////////////////////////
 void DmxPlayer::run( void ) {
     // Let's mark the playHead with the current time
     startTimeStamp = chrono::duration_cast<chrono::milliseconds>(chrono::high_resolution_clock::now().time_since_epoch()).count();
@@ -506,6 +571,38 @@ void DmxPlayer::run( void ) {
     // Play head init set
     playHead = 0;
 
-    // Run OLA set callbacks
-    olaServer->Run();
+    unsigned int reconnectDelay = CuemsConstants::OLA_RECONNECT_INITIAL_DELAY_MS;
+
+    while (m_running) {
+        if (!setupOlaConnection()) {
+            CuemsLogger::getLogger()->logWarning(
+                "OLA connection failed, retrying in " + std::to_string(reconnectDelay) + "ms");
+            std::this_thread::sleep_for(std::chrono::milliseconds(reconnectDelay));
+            reconnectDelay = std::min(reconnectDelay * 2,
+                (unsigned int)CuemsConstants::OLA_RECONNECT_MAX_DELAY_MS);
+            continue;
+        }
+
+        // Reset backoff on successful connection
+        reconnectDelay = CuemsConstants::OLA_RECONNECT_INITIAL_DELAY_MS;
+
+        // Discard scenes queued during downtime and reset universe state
+        purgeStaleScenes();
+
+        CuemsLogger::getLogger()->logInfo("OLA SelectServer running");
+        olaServer->Run();  // Blocks until Terminate() is called
+
+        // Run() returned — check why
+        if (m_olaConnected) {
+            // Normal termination (e.g. SIGTERM via /quit)
+            CuemsLogger::getLogger()->logInfo("OLA SelectServer terminated normally");
+            break;
+        }
+
+        // Connection lost — clean up and reconnect
+        CuemsLogger::getLogger()->logWarning("OLA connection lost, attempting reconnect...");
+        teardownOlaConnection();
+    }
+
+    m_running = false;
 }
