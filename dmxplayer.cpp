@@ -77,9 +77,9 @@ DmxPlayer::DmxPlayer(   int port,
         exit( CUEMS_EXIT_FAILED_OLA_SEL_SERV );
     }
     else {
-        // Let's set a callback for each universe deailed in the scene
+        // Start in idle mode — switch to active when scenes arrive
         CuemsLogger::getLogger()->logInfo("Setting OLA callback");
-        olaServer->RegisterRepeatingTimeout( CuemsConstants::OLA_CALLBACK_TIMEOUT_MS, ola::NewCallback( &DmxPlayer::SendUniverseData, this ) );
+        registerTimer(/*idle=*/true);
     }
 
 }
@@ -108,14 +108,23 @@ void DmxPlayer::ProcessBundle( const osc::ReceivedBundle& b,
 
   // If it's a top-level bundle, add m_nextScene to scenes
   if (0 == m_inBundle) {
-    std::lock_guard guard(m_scenesMutex);
-    auto r_it = m_scenes.rbegin();
-    for (; r_it != m_scenes.rend(); ++r_it) {
-      if (r_it->m_mtcStart <= m_nextScene.m_mtcStart) {
-        break;
+    {
+      std::lock_guard guard(m_scenesMutex);
+      auto r_it = m_scenes.rbegin();
+      for (; r_it != m_scenes.rend(); ++r_it) {
+        if (r_it->m_mtcStart <= m_nextScene.m_mtcStart) {
+          break;
+        }
       }
+      m_scenes.insert(r_it.base(), std::move(m_nextScene));
     }
-    m_scenes.insert(r_it.base(), std::move(m_nextScene));
+
+    // If on idle timer, wake up the SelectServer to switch to active (10ms).
+    // Execute() is thread-safe and interrupts select() immediately.
+    if (m_isIdleTimer && olaServer != nullptr) {
+      olaServer->Execute(
+          ola::NewSingleCallback(this, &DmxPlayer::switchToActiveTimer));
+    }
   }
 }
 
@@ -289,41 +298,53 @@ bool DmxPlayer::SendUniverseData(DmxPlayer* dp) {
       dp->playHead = 0;
       dp->processScenes();
       dp->updateActiveUniverses();
-      return true;
     }
     // If we are receiving MTC and following it...
     // Or we are not receiving it and we do not stop on its lost
     // And we haven't reached the end of playing time...
-    bool timecode_running = dp->mtcReceiver.isTimecodeActive(); //isTimecodeRunning
-    if ( ( timecode_running ||
-            (dp->mtcSignalLost && !dp->stopOnMTCLost) )   ) {
-
-        // Check play control flags
-        // If there is MTC signal and we haven't started, check it
-        if ( timecode_running ) {
-            if ( !dp->mtcSignalStarted ) {
-                CuemsLogger::getLogger()->logInfo("MTC -> Play started");
-                dp->mtcSignalStarted = true;
-            }
-            else {
-                if ( dp->mtcSignalLost ) {
-                    CuemsLogger::getLogger()->logInfo("MTC -> Play resumed");
-                }
-            }
-
-            // Receiving MTC, means that signal is not lost anymore
-            dp->mtcSignalLost = false;
-        }
-
-        dp->playHead = dp->mtcReceiver.estimatedCurrentHead();
-        dp->processScenes();
-        dp->updateActiveUniverses();
-    }
     else {
-        if ( ! timecode_running && dp->mtcSignalStarted && !dp->mtcSignalLost ) {
-            CuemsLogger::getLogger()->logInfo("MTC signal lost");
-            dp->mtcSignalLost = true;
-        }
+      bool timecode_running = dp->mtcReceiver.isTimecodeActive(); //isTimecodeRunning
+      if ( ( timecode_running ||
+              (dp->mtcSignalLost && !dp->stopOnMTCLost) )   ) {
+
+          // Check play control flags
+          // If there is MTC signal and we haven't started, check it
+          if ( timecode_running ) {
+              if ( !dp->mtcSignalStarted ) {
+                  CuemsLogger::getLogger()->logInfo("MTC -> Play started");
+                  dp->mtcSignalStarted = true;
+              }
+              else {
+                  if ( dp->mtcSignalLost ) {
+                      CuemsLogger::getLogger()->logInfo("MTC -> Play resumed");
+                  }
+              }
+
+              // Receiving MTC, means that signal is not lost anymore
+              dp->mtcSignalLost = false;
+          }
+
+          dp->playHead = dp->mtcReceiver.estimatedCurrentHead();
+          dp->processScenes();
+          dp->updateActiveUniverses();
+      }
+      else {
+          if ( ! timecode_running && dp->mtcSignalStarted && !dp->mtcSignalLost ) {
+              CuemsLogger::getLogger()->logInfo("MTC signal lost");
+              dp->mtcSignalLost = true;
+          }
+      }
+    }
+
+    // Adaptive timer: switch between idle (200ms) and active (10ms) intervals
+    bool needsWork = dp->hasActiveWork();
+    if (needsWork && dp->m_isIdleTimer) {
+        dp->registerTimer(/*idle=*/false, /*fromCallback=*/true);
+        return false;  // cancel this repeating timeout; new one already registered
+    }
+    if (!needsWork && !dp->m_isIdleTimer) {
+        dp->registerTimer(/*idle=*/true, /*fromCallback=*/true);
+        return false;
     }
 
     return true;
@@ -437,6 +458,43 @@ void DmxPlayer::updateActiveUniverses()
       ++it;
     }
   }
+}
+
+//////////////////////////////////////////////////////////
+// Register a repeating timer on the OLA SelectServer.
+//
+// IMPORTANT: fromCallback controls whether we call RemoveTimeout().
+// When called from inside a repeating callback (SendUniverseData),
+// the caller MUST return false to cancel the old timer — calling
+// RemoveTimeout here would double-free the callback object since
+// OLA also removes it on false return. When called from outside
+// (e.g. switchToActiveTimer via Execute), we must call RemoveTimeout
+// explicitly because there is no return-false mechanism.
+void DmxPlayer::registerTimer(bool idle, bool fromCallback) {
+    if (!fromCallback && m_currentTimeoutId != ola::thread::INVALID_TIMEOUT && olaServer != nullptr) {
+        olaServer->RemoveTimeout(m_currentTimeoutId);
+    }
+
+    unsigned int interval = idle
+        ? CuemsConstants::OLA_CALLBACK_TIMEOUT_IDLE_MS
+        : CuemsConstants::OLA_CALLBACK_TIMEOUT_MS;
+
+    m_isIdleTimer = idle;
+    m_currentTimeoutId = olaServer->RegisterRepeatingTimeout(
+        interval,
+        ola::NewCallback(&DmxPlayer::SendUniverseData, this));
+}
+
+//////////////////////////////////////////////////////////
+bool DmxPlayer::hasActiveWork() const {
+    return !m_scenes.empty() || !m_activeUniverses.empty();
+}
+
+//////////////////////////////////////////////////////////
+void DmxPlayer::switchToActiveTimer() {
+    if (m_isIdleTimer) {
+        registerTimer(/*idle=*/false, /*fromCallback=*/false);
+    }
 }
 
 //////////////////////////////////////////////////////////

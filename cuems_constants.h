@@ -53,6 +53,10 @@ constexpr int MILLISECONDS_PER_HOUR = 60 * MILLISECONDS_PER_MINUTE;
 // OLA callback timeout (ms)
 constexpr int OLA_CALLBACK_TIMEOUT_MS = 10;
 
+// Idle polling interval (5x/sec) — reduces CPU when no scenes are active.
+// New scenes trigger an instant switch back to OLA_CALLBACK_TIMEOUT_MS.
+constexpr int OLA_CALLBACK_TIMEOUT_IDLE_MS = 200;
+
 // Universe fetch look ahead time (ms)
 constexpr int UNIVERSE_FETCH_LOOK_AHEAD_MS = 50;
 

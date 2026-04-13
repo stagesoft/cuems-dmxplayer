@@ -93,6 +93,10 @@ class DmxPlayer : public OscReceiver
         ola::client::OlaClientWrapper olaClientWrapper;
         ola::io::SelectServer *olaServer = NULL;
 
+        // Adaptive timer state
+        ola::thread::timeout_id m_currentTimeoutId = ola::thread::INVALID_TIMEOUT;
+        bool m_isIdleTimer = false;
+
         // Data structures for managing scene transitions
 
         using FrameValues = std::map<uint16_t, uint8_t>;      // channel_id -> value
@@ -138,6 +142,11 @@ class DmxPlayer : public OscReceiver
         void processScenes();
         void updateActiveUniverses();
         long int convertTime(const std::string_view &time);
+
+        // Adaptive timer management
+        void registerTimer(bool idle, bool fromCallback = false);
+        bool hasActiveWork() const;
+        void switchToActiveTimer();
 
         long int startTimeStamp;
         // Start fetching universe data before transition start time
