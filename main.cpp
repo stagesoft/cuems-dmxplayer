@@ -193,15 +193,11 @@ int main( int argc, char *argv[] ) {
     sigUsr1Handler( SIGUSR1 );
 
     try {
-        myDmxPlayer->run();
+        myDmxPlayer->run();  // Blocks until final exit (handles reconnection internally)
     }
     catch( const std::exception &e ) {
         logger->logError(e.what());
     }
-
-    //////////////////////////////////////////////////////////
-    // Wait for it to finnish somehow
-    while ( myDmxPlayer->IsRunning() ) ;
 
     logger->logInfo( "Exiting with result code: " + std::to_string( EXIT_SUCCESS ) );
 

@@ -35,6 +35,7 @@
 #include <atomic>
 #include <chrono>
 #include <csignal>
+#include <memory>
 #include <vector>
 #include <list>
 #include <iostream>
@@ -75,7 +76,7 @@ class DmxPlayer : public OscReceiver
 
         // OLA Methods
         void run( void );
-        bool IsRunning() const {return olaServer->IsRunning();}
+        bool IsRunning() const { return m_running.load(); }
 
     protected:
         // MTC receiver object
@@ -90,8 +91,12 @@ class DmxPlayer : public OscReceiver
         bool followMTC = false;                         // Do we follow MTC or paused
 
         // OLA components
-        ola::client::OlaClientWrapper olaClientWrapper;
-        ola::io::SelectServer *olaServer = NULL;
+        std::unique_ptr<ola::client::OlaClientWrapper> m_olaWrapper;
+        ola::io::SelectServer *olaServer = nullptr;
+
+        // OLA connection state
+        std::atomic<bool> m_olaConnected{false};
+        std::atomic<bool> m_running{true};
 
         // Data structures for managing scene transitions
 
@@ -138,6 +143,12 @@ class DmxPlayer : public OscReceiver
         void processScenes();
         void updateActiveUniverses();
         long int convertTime(const std::string_view &time);
+
+        // OLA connection management
+        bool setupOlaConnection();
+        void teardownOlaConnection();
+        void onOlaConnectionClosed();
+        void purgeStaleScenes();
 
         long int startTimeStamp;
         // Start fetching universe data before transition start time
