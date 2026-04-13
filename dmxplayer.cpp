@@ -47,7 +47,7 @@ DmxPlayer::DmxPlayer(   int port,
                         const std::string &client_name)
                         :   // Members initialization
                         OscReceiver(port, oscRoute),
-                        mtcReceiver(RtMidiIn::LINUX_ALSA, client_name),
+                        mtcReceiver(MTCRECV_DEFAULT_API, client_name),
                         stopOnMTCLost(stopOnLostFlag),
                         followMTC(followMTCFlag)
 {
