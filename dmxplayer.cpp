@@ -54,6 +54,9 @@ DmxPlayer::DmxPlayer(   int port,
     //////////////////////////////////////////////////////////
     // Set up working class members
 
+    // Enable network-tolerant MTC timeouts (for rtpmidid / MTC over network)
+    mtcReceiver.setNetworkMode(true);
+
     // Starting OLA logging
     ola::InitLogging(ola::OLA_LOG_WARN, ola::OLA_LOG_STDERR);
 
