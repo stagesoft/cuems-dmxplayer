@@ -17,7 +17,7 @@ CXXFLAGS +=
 
 LDFLAGS =  -fsanitize=address
 LBLIBS = -lrtmidi -lpthread -lxerces-c -lstdc++fs -lola -lolacommon -loscpack
-TARGET := dmxplayer-cuems
+TARGET := cuems-dmxplayer
 SRC := $(wildcard *.cpp) \
 			$(wildcard ./oscreceiver/*.cpp) \
 			$(wildcard ./mtcreceiver/*.cpp) \

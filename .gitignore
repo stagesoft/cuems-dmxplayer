@@ -34,7 +34,8 @@ xml_examples/**
 *.exe
 *.out
 *.app
-dmxplayer-cuems
+cuems-dmxplayer
+dmxplayer
 
 #cmake build dir
 /build/
