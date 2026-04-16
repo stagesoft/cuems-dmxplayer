@@ -1,2 +1,2 @@
-# dmxplayer
+# cuems-dmxplayer
 Cuems DMX player

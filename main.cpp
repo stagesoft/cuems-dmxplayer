@@ -51,7 +51,7 @@ int main( int argc, char *argv[] ) {
 
     // We instantiate here our singleton logger object to be accessed
     // via the CuemsLogger::getLogger() function across the app
-    logger = new CuemsLogger( "dmxplayer" );
+    logger = new CuemsLogger( "cuems-dmxplayer" );
 
     //////////////////////////////////////////////////////////
     // Parse command line
@@ -219,7 +219,7 @@ void showcopyright( void ) {
 
 //////////////////////////////////////////////////////////
 void showusage( void ) {
-    std::cout << "Usage :    dmxplayer --port <osc_port> [other options]" << endl << endl <<
+    std::cout << "Usage :    cuems-dmxplayer --port <osc_port> [other options]" << endl << endl <<
         "           COMPULSORY OPTIONS:" << endl <<
         "           --port , -p <port_number> : OSC port to listen to." << endl << endl <<
         "           OPTIONAL OPTIONS:" << endl <<

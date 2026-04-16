@@ -12,24 +12,24 @@ add_subdirectory(oscreceiver)
 add_subdirectory(mtcreceiver)
 add_subdirectory(cuemslogger)
 
-set (dmxplayer_SRC
+set (cuems-dmxplayer_SRC
   dmxplayer.cpp
   commandlineparser.cpp
   main.cpp
 )
 
-set (dmxplayer_LIBS
+set (cuems-dmxplayer_LIBS
   cuemslogger
   mtcreceiver
   oscreceiver
   -lrtmidi -lpthread -lxerces-c -lstdc++fs -lola -lolacommon
 )
 
-add_executable(dmxplayer ${dmxplayer_SRC})
-target_link_libraries(dmxplayer ${dmxplayer_LIBS})
+add_executable(cuems-dmxplayer ${cuems-dmxplayer_SRC})
+target_link_libraries(cuems-dmxplayer ${cuems-dmxplayer_LIBS})
 target_compile_definitions(mtcreceiver PUBLIC HAVE_CUEMS_LOGGER)
-#target_link_options(dmxplayer PRIVATE -fsanitize=address)
+#target_link_options(cuems-dmxplayer PRIVATE -fsanitize=address)
 
-install(TARGETS dmxplayer
+install(TARGETS cuems-dmxplayer
         RUNTIME DESTINATION bin
 )
