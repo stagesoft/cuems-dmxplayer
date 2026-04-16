@@ -1,3 +1,12 @@
+cuems-dmxplayer (0.0.0-4) bookworm; urgency=medium
+
+  * rename installed binary dmxplayer / dmxplayer-cuems -> cuems-dmxplayer
+    to align with the cuems-<component> naming convention used across the
+    ecosystem
+  * unify CMake and Makefile build systems (both now produce cuems-dmxplayer)
+
+ -- Ion Reguera <ion@stagelab.coop>  Thu, 16 Apr 2026 19:55:00 +0200
+
 cuems-dmxplayer (0.0.0-3) bookworm; urgency=medium
 
   * Rename binary to dmxplayer-cuems
