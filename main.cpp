@@ -151,6 +151,27 @@ int main( int argc, char *argv[] ) {
             followMTCFlag = true;
     }
 
+    // --output-latency-ms <int> : explicit override of the DMX output
+    // pipeline latency compensation. Fed by the engine from
+    // settings.xml. Sentinel -1 means "no override, use the 35 ms
+    // Phase-5A default".
+    long outputLatencyMs = -1;
+    if ( argParser->optionExists("--output-latency-ms") ) {
+        std::string latencyParam = argParser->getParam("--output-latency-ms");
+        if ( !latencyParam.empty() ) {
+            try {
+                outputLatencyMs = std::stol(latencyParam);
+            } catch ( const std::exception& e ) {
+                std::cout << "Invalid integer after --output-latency-ms: "
+                          << latencyParam << endl;
+                logger->getLogger()->logError(
+                    "Exiting with result code: "
+                    + std::to_string(CUEMS_EXIT_WRONG_PARAMETERS));
+                exit(CUEMS_EXIT_WRONG_PARAMETERS);
+            }
+        }
+    }
+
     delete argParser;
 
     // End of command line parsing
@@ -179,6 +200,9 @@ int main( int argc, char *argv[] ) {
     else {
         try {
             myDmxPlayer = new DmxPlayer( portNumber, "", stopOnLostFlag, followMTCFlag, "DMX_Player-" + processUuid );
+            if (outputLatencyMs >= 0) {
+                myDmxPlayer->setOutputLatencyMs(outputLatencyMs);
+            }
         }
         catch ( const std::exception& e ) {
             logger->logError( "Failed to create DmxPlayer: " + std::string(e.what()) );
