@@ -78,6 +78,10 @@ class DmxPlayer : public OscReceiver
         void run( void );
         bool IsRunning() const { return m_running.load(); }
 
+        // Set the DMX output-pipeline latency compensation in ms.
+        // Values outside [0, 500] are clamped. Thread-safe (atomic).
+        void setOutputLatencyMs(long ms);
+
     protected:
         // MTC receiver object
         MtcReceiver mtcReceiver;                        // Our MTC receiver object
@@ -97,6 +101,13 @@ class DmxPlayer : public OscReceiver
         // OLA connection state
         std::atomic<bool> m_olaConnected{false};
         std::atomic<bool> m_running{true};
+
+        // DMX output-pipeline latency compensation. Added to the MTC
+        // playHead so fade computations look ahead by one pipeline's
+        // worth of latency (OLA + adapter + DMX wire / ArtNet node +
+        // fixture electronics). Default 35 ms — midpoint of ENTTEC
+        // (~31 ms typical) and ArtNet (~44 ms typical).
+        std::atomic<long int> m_outputLatencyMs{35};
 
         // Adaptive timer state
         ola::thread::timeout_id m_currentTimeoutId = ola::thread::INVALID_TIMEOUT;
