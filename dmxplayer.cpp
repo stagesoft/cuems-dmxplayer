@@ -81,6 +81,16 @@ DmxPlayer::~DmxPlayer( void ) {
 }
 
 //////////////////////////////////////////////////////////
+void DmxPlayer::setOutputLatencyMs(long ms) {
+    if (ms < 0) ms = 0;
+    if (ms > 500) ms = 500;
+    m_outputLatencyMs.store(ms);
+    CuemsLogger::getLogger()->logInfo(
+        "DMX output latency compensation updated to "
+        + std::to_string(ms) + " ms");
+}
+
+//////////////////////////////////////////////////////////
 void DmxPlayer::ProcessBundle( const osc::ReceivedBundle& b,
                                const IpEndpointName& remoteEndpoint )
 {
@@ -317,7 +327,8 @@ bool DmxPlayer::SendUniverseData(DmxPlayer* dp) {
               dp->mtcSignalLost = false;
           }
 
-          dp->playHead = dp->mtcReceiver.estimatedCurrentHead();
+          dp->playHead = dp->mtcReceiver.estimatedCurrentHead()
+                       + dp->m_outputLatencyMs.load();
           dp->processScenes();
           dp->updateActiveUniverses();
       }
@@ -570,6 +581,10 @@ void DmxPlayer::run( void ) {
 
     // Play head init set
     playHead = 0;
+
+    CuemsLogger::getLogger()->logInfo(
+        "DMX output latency compensation = "
+        + std::to_string(m_outputLatencyMs.load()) + " ms");
 
     unsigned int reconnectDelay = CuemsConstants::OLA_RECONNECT_INITIAL_DELAY_MS;
 
