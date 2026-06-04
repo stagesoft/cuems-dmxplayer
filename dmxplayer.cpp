@@ -60,18 +60,10 @@ DmxPlayer::DmxPlayer(   int port,
     // Starting OLA logging
     ola::InitLogging(ola::OLA_LOG_WARN, ola::OLA_LOG_STDERR);
 
-    // OLA connection is established in run() which handles reconnection.
-    // Validate OLA is reachable at startup for fail-fast behavior.
-    {
-        ola::client::OlaClientWrapper probe;
-        if (!probe.Setup()) {
-            std::cerr << "OLA setup failed" << endl;
-            CuemsLogger::getLogger()->logError("OLA setup failed!");
-            CuemsLogger::getLogger()->logError( "Exiting with result code: " + std::to_string(CUEMS_EXIT_FAILED_OLA_SETUP) );
-            exit( CUEMS_EXIT_FAILED_OLA_SETUP );
-        }
-        // probe is destroyed here — run() will create the real connection
-    }
+    // OLA connection is established (with retry) in run(). Readiness is already
+    // gated in main(), which waits for olad to be reachable before constructing
+    // us — so no redundant fail-fast probe is needed here. (A probe here would
+    // also exit() on a transient olad blip, bypassing main's catch.)
 
 }
 

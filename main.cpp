@@ -30,6 +30,10 @@
 
 #include "main.h"
 #include "cuems_constants.h"
+#include <chrono>
+#include <thread>
+#include <algorithm>
+#include <cstdlib>
 
 using namespace std;
 namespace fs = std::filesystem;
@@ -198,6 +202,46 @@ int main( int argc, char *argv[] ) {
         exit( CUEMS_EXIT_FAILED_OLA_SETUP );
     }
     else {
+        // Cold-boot resilience: the engine spawns us as soon as the node boots,
+        // but olad's RPC may not be accepting connections yet. Constructing
+        // DmxPlayer in that window makes its OLA probe throw, and the unwinding
+        // could wedge the player with no DMX output. Wait here for olad to
+        // become reachable BEFORE constructing — so DmxPlayer is built exactly
+        // once, after OLA is ready (no repeated construction, no leaked member
+        // threads). Bounded by a generous deadline because the engine does NOT
+        // respawn a dead player; on timeout we exit fatally so it is visible.
+        {
+            int olaWaitS = 180;
+            if ( const char* env = std::getenv("CUEMS_DMX_OLA_WAIT_S") ) {
+                try { olaWaitS = std::max( 0, std::stoi(env) ); }
+                catch ( const std::exception& ) { /* keep default */ }
+            }
+            ola::InitLogging( ola::OLA_LOG_WARN, ola::OLA_LOG_STDERR );
+            auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds( olaWaitS );
+            int attempt = 0;
+            bool olaReady = false;
+            while ( !olaReady ) {
+                try {
+                    ola::client::OlaClientWrapper probe;
+                    olaReady = probe.Setup();
+                }
+                catch ( const std::exception& ) { olaReady = false; }
+                if ( olaReady ) break;
+                if ( std::chrono::steady_clock::now() >= deadline ) {
+                    logger->logError( "olad (OLA RPC) not reachable after "
+                        + std::to_string(olaWaitS) + "s — exiting" );
+                    delete logger;
+                    exit( CUEMS_EXIT_FAILED_OLA_SETUP );
+                }
+                ++attempt;
+                int delayMs = std::min( 500 * std::min(attempt, 10), 5000 );
+                logger->logInfo( "Waiting for olad to become reachable (attempt "
+                    + std::to_string(attempt) + ")" );
+                std::this_thread::sleep_for( std::chrono::milliseconds(delayMs) );
+            }
+        }
+
+        // olad is reachable — construct exactly once.
         try {
             myDmxPlayer = new DmxPlayer( portNumber, "", stopOnLostFlag, followMTCFlag, "DMX_Player-" + processUuid );
             if (outputLatencyMs >= 0) {
