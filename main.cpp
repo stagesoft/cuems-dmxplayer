@@ -34,6 +34,8 @@
 #include <thread>
 #include <algorithm>
 #include <cstdlib>
+#include <rtmidi/RtMidi.h>
+#include <memory>
 
 using namespace std;
 namespace fs = std::filesystem;
@@ -239,6 +241,75 @@ int main( int argc, char *argv[] ) {
                     + std::to_string(attempt) + ")" );
                 std::this_thread::sleep_for( std::chrono::milliseconds(delayMs) );
             }
+        }
+
+        // Cold-boot resilience (MIDI) — sibling of the OLA gate above, runs
+        // after it (independent; order irrelevant). The engine spawns us seconds
+        // after boot, possibly before the ALSA sequencer is up or before Midi
+        // Through Port-0 is enumerated. DmxPlayer's mtcReceiver member is built
+        // AFTER the OscReceiver base; if its construction throws — either the
+        // RtMidiIn base ctor (ALSA seq not ready) or the getPortCount()==0 guard
+        // — the throw unwinds through the already-built OscReceiver base and
+        // DEADLOCKS in ~OscReceiver (lost AsynchronousBreak before join) -> main()
+        // hangs forever in `new DmxPlayer`, leaving a player with an OSC socket but
+        // no MTC and no DMX. Gate here until a usable MIDI source exists: a
+        // successful RtMidiIn probe (proves ALSA seq is up) AND a port whose name
+        // STARTS WITH "Midi Through" (the real kernel dummy is client 14 -> index 0,
+        // exactly the portIndex MtcReceiver opens; starts-with excludes the rtpmidid
+        // mirror ports "rtpmidid:Midi Through-..."). Then the mtcReceiver ctor runs
+        // in a verified-good state and cannot throw. On timeout exit fatally (the
+        // engine does not respawn a dead player, so failing loud beats a zombie).
+        {
+            int midiWaitS = 180;
+            if ( const char* env = std::getenv("CUEMS_DMX_MIDI_WAIT_S") ) {
+                try { midiWaitS = std::max( 0, std::stoi(env) ); }
+                catch ( const std::exception& ) { /* keep default */ }
+            }
+            auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds( midiWaitS );
+            int attempt = 0;
+            bool midiReady = false;
+            // One probe reused across iterations (getPortCount/getPortName re-query
+            // the ALSA seq live) so we don't churn an ALSA client every 0.5 s. Built
+            // lazily because the RtMidiIn ctor itself throws while ALSA seq isn't up.
+            std::unique_ptr<RtMidiIn> probe;
+            while ( !midiReady ) {
+                try {
+                    if ( !probe )
+                        probe.reset( new RtMidiIn( MTCRECV_DEFAULT_API, "cuems-dmxplayer-midiprobe" ) );
+                    // Require port 0 (the index MtcReceiver opens) to be the real
+                    // Midi Through, and TEST-OPEN it — the exact subscription
+                    // MtcReceiver performs. At cold boot the port can EXIST but not
+                    // yet be connectable ("ALSA error making port connection"), and
+                    // openPort throws then; retry until the subscription succeeds so
+                    // MtcReceiver's openPort(0) a moment later cannot throw/unwind.
+                    if ( probe->getPortCount() > 0
+                         && probe->getPortName(0).rfind("Midi Through", 0) == 0 ) {
+                        probe->openPort( 0, "cuems-dmxplayer-midiprobe" );
+                        if ( probe->isPortOpen() ) {
+                            probe->closePort();
+                            midiReady = true;
+                        }
+                    }
+                }
+                catch ( const std::exception& ) {   // RtMidiError : std::exception
+                    midiReady = false;
+                    probe.reset();                   // drop a half-open client; rebuild next loop
+                }
+                if ( midiReady ) break;
+                if ( std::chrono::steady_clock::now() >= deadline ) {
+                    logger->logError( "No 'Midi Through' MIDI input port after "
+                        + std::to_string(midiWaitS) + "s — exiting" );
+                    probe.reset();
+                    delete logger;
+                    exit( CUEMS_EXIT_NO_MIDI_PORTS_FOUND );
+                }
+                ++attempt;
+                int delayMs = std::min( 500 * std::min(attempt, 10), 5000 );
+                logger->logInfo( "Waiting for 'Midi Through' MIDI input port (attempt "
+                    + std::to_string(attempt) + ")" );
+                std::this_thread::sleep_for( std::chrono::milliseconds(delayMs) );
+            }
+            // probe destroyed here, before constructing DmxPlayer.
         }
 
         // olad is reachable — construct exactly once.
