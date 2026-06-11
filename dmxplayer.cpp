@@ -168,6 +168,12 @@ void DmxPlayer::ProcessMessage( const osc::ReceivedMessage& m,
                 }
                 m_activeUniverses.clear();
             }
+            // Clear the >24h wrap accumulator on project-clear. MtcReceiver keeps
+            // it in a process-global static; this long-running daemon would
+            // otherwise carry a stale +86_400_000 ms offset into the next project
+            // after a >24h run (the wire-driven reset can't catch a graceful
+            // reload's small backward delta). (Plan 3b)
+            MtcReceiver::resetWrapOffset();
 
         // We only accept the following commands from a bundle
         } else if (0 < m_inBundle) {
