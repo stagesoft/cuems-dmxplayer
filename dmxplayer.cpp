@@ -505,7 +505,10 @@ void DmxPlayer::switchToActiveTimer() {
 bool DmxPlayer::setupOlaConnection() {
     CuemsLogger::getLogger()->logInfo("Setting up OLA connection...");
 
-    m_olaWrapper = std::make_unique<ola::client::OlaClientWrapper>();
+    // auto_start=false: connect only to an already-running olad; never fork a
+    // rogue `olad` (which would run as cuems without plugdev and be unable to
+    // drive USB DMX widgets). main() has already gated on olad reachability.
+    m_olaWrapper = std::make_unique<ola::client::OlaClientWrapper>(false);
 
     if (!m_olaWrapper->Setup()) {
         CuemsLogger::getLogger()->logError("OLA setup failed");

@@ -224,7 +224,13 @@ int main( int argc, char *argv[] ) {
             bool olaReady = false;
             while ( !olaReady ) {
                 try {
-                    ola::client::OlaClientWrapper probe;
+                    // auto_start=false: only succeed against an already-running
+                    // olad. With the default (true), this probe would itself
+                    // fork a rogue `olad --daemon` as the cuems user (no plugdev,
+                    // read-only /etc/ola) which squats :9010 and cannot drive USB
+                    // DMX widgets — defeating the purpose of waiting for the real
+                    // (systemd) olad. Wait for the real one instead.
+                    ola::client::OlaClientWrapper probe(false);
                     olaReady = probe.Setup();
                 }
                 catch ( const std::exception& ) { olaReady = false; }
