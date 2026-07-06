@@ -1,0 +1,5 @@
+cuems-dmxplayer.debhelper.log
+cuems-dmxplayer.substvars
+debhelper-build-stamp
+files
+*.debhelper
