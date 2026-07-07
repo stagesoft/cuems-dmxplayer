@@ -1,10 +1,10 @@
-# CLAUDE.md
+# cuems-dmxplayer
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Part of the **CUEMS** ecosystem — see the [`cuems-RELATIONS`](https://github.com/stagesoft/cuems-RELATIONS) repo for the system index, architecture diagram, and protocol/port map.
 
 ## Project Overview
 
-cuems-dmxplayer is a Linux DMX lighting player for the CUEMS (Cue Management System) platform. It plays DMX cues synchronized to MIDI Time Code (MTC), receiving scene data and control commands via OSC (Open Sound Control). DMX output goes through OLA (Open Lighting Architecture).
+cuems-dmxplayer is a Linux DMX lighting player for the CUEMS (Cue Management System) platform. It plays DMX cues synchronized to MIDI Time Code (MTC), receiving scene data and control commands via OSC (Open Sound Control). DMX output goes through OLA (Open Lighting Architecture). The engine→player OSC-bundle protocol is documented once in the cuems-RELATIONS CLAUDE.md ("DMX Cue Lifecycle"); this file covers the player internals. The canonical binary name is **`cuems-dmxplayer`** (see the binary-name gotcha below). Deploy with the **stop → cp → start** discipline.
 
 ## Build
 
@@ -82,3 +82,18 @@ Requires OLA daemon (`olad`) running.
 ## Error codes
 
 Defined in `cuems_errors.h`. Exit codes range from 0 (OK) to -9 (init failed). Key ones: `-5` OLA setup failed, `-9` player constructor failed (e.g. port bind error).
+
+## Diagnostics — coordinate transport state
+
+When diagnosing DMX by watching olad `get_dmx?u=0`, **explicitly confirm with the operator whether the project is RUNNING or STOPPED before each measurement** — a watch is only meaningful relative to transport state (phantom-source test → STOPPED; hold test → RUNNING + DMX cue GO'd). dmxplayer's `set channels`/`holding` lines are **stdout** → they land in the node-engine "Subprocess output" journal, NOT the `Cuems:d<uuid>` syslog slug (that carries CuemsLogger MTC events). `strace` is often NOT installed on rigs; use `tcpdump` + `ss -tni` byte counters + `kill -USR1 olad` (live DEBUG) instead.
+
+## Field notes / gotchas (DMX-dead failure modes)
+
+These are distinct root causes for the same symptom (video/audio fine, DMX universe flat 0):
+
+- **Doubled MTC quarter-frames → `isTimecodeActive()` never true.** If `MtcMaster` is subscribed to `Midi Through Port-0` twice (`aconnect -l` shows `14:0, 14:0[real:0]`), every QF is delivered doubled (200/s at 25fps) → `mtcreceiver` never assembles a complete 8-QF sequence → `timecodeRunWeight` stays 0 → the DMX gate never opens. Videocomposer rides the per-QF tick so it's fine (that divergence is the tell). Root cause: cuems-midi-connector's plain ALSA subscription doesn't dedupe against RtMidi's real-time-flagged one (kernel `match_subs_info` only dedupes matching flags). Immediate fix: `sudo aconnect -d 130:0 14:0`. Durable fix lives in cuems-midi-connector (real-time flags on the `to_through` subscribe). Preventing it at libmtcmaster `openPort` proved unreliable (it's a connect-time race) — only post-connect dedup works.
+- **Cold-boot MIDI openPort race → player dies/hangs.** cuems-midi-connector wires `14:0 → player recv` at the same instant the player's own `MtcReceiver::openPort(0)` self-subscribes; at cold boot midi-connector wins → the player's openPort gets EBUSY → RtMidi throws → dmxplayer dies (node-engine does not respawn it). Tell: `ls /proc/<pid>/fd | grep snd` empty. Fixed by **deferring `from_through` wiring 1s in cuems-midi-connector** (commit `9af92bb`, scoped to the new-client announce path only via `CUEMS_MIDICONN_FROM_THROUGH_GRACE_S`) so the player self-wires first; dmxplayer `main.cpp` also test-opens port 0 before constructing (`af7e8fa`, env `CUEMS_DMX_MIDI_WAIT_S`) as defense-in-depth.
+- **olad stale-prune resetting the universe.** dmxplayer pushes a static look to olad once and never refreshes; olad's garbage collector (`K_HOUSEKEEPING_TIMEOUT_MS`=10s) prunes a source that stops sending. The stagesoft OLA fork **RETAINS** the last buffer on prune (does not zero it), so the keep-alive (`fix/dmxplayer-hold-output` `9d0644a`, `refreshHeldUniverses` every 5s) was found unnecessary and **reverted for release** — kept on its branch. The real "~60s DMX blip" was ultimately a **hidden browser tab** on the OLA web UI (`:9090`) POSTing 0-value frames as a transient DMX source. Lesson: when a universe gets stray frames, check for an OLA web-UI tab.
+- **Binary-name mismatch → "No local DMX player available".** A `.deb` once shipped the binary as `/usr/bin/dmxplayer-cuems` (reversed) while the engine spawns `/usr/bin/cuems-dmxplayer` (from `settings.xml <dmxplayer><path>`) → `[Errno 2]` → player thread dies → every DmxCue arms with the error. Current source (`CMakeLists add_executable(cuems-dmxplayer ...)`, debian staging `usr/bin/cuems-dmxplayer`) builds the canonical name. The repo was unified onto `main` (0.0.0-6) so one branch builds the correctly-named `.deb` — redeploy fleet-wide; older clusters may still run the mis-named one.
+- OLA setup (rogue-olad eviction, Open-DMX / Eurolite MK2 patching, universe **0** not 1): see the `ola` fork's CLAUDE.md.
+
