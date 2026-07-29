@@ -1,3 +1,13 @@
+cuems-dmxplayer (0.0.0-7) bookworm; urgency=medium
+
+  * Journal logging: OSC parse failures and OLA universe-fetch failures
+    now logError (rate-limited in the 10ms tick path); scene/bundle
+    diagnostics demoted to debug; duplicate cerr echoes removed;
+    submodule pins converged (cuemslogger master now contains the anton
+    closelog fix this repo was pinned to).
+
+ -- Ion Reguera <ion@stagelab.coop>  Wed, 29 Jul 2026 19:47:44 +0200
+
 cuems-dmxplayer (0.0.0-6) bookworm; urgency=medium
 
   * Unify release code onto main: fold in rc_1 (mtcreceiver 24h-continuity-rc2,
