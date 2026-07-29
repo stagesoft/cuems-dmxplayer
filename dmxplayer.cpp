@@ -32,6 +32,8 @@
 #include "cuems_constants.h"
 #include <thread>
 #include <charconv>
+#include <sstream>
+#include <ctime>
 
 using namespace std;
 
@@ -91,13 +93,13 @@ void DmxPlayer::ProcessBundle( const osc::ReceivedBundle& b,
     m_nextScene.m_mtcStart = playHead;
   }
   ++m_inBundle;
-  std::cout << "DmxPlayer::ProcessBundle => " << m_inBundle
-    << " thread=" << std::this_thread::get_id()
-    << std::endl;
   OscReceiver::ProcessBundle(b, remoteEndpoint);
   --m_inBundle;
-  std::cout << "DmxPlayer::ProcessBundle <= " << m_inBundle
-    << "  values:" << m_nextScene.m_sceneValues.size() << std::endl;
+  // One debug line per bundle (the old enter/exit cout pair with thread ids
+  // was two stdout lines per OSC bundle, journal-stamped as info).
+  CuemsLogger::getLogger()->logDebug(
+    "DmxPlayer::ProcessBundle depth=" + std::to_string(m_inBundle)
+    + " values:" + std::to_string(m_nextScene.m_sceneValues.size()) );
 
   // If it's a top-level bundle, add m_nextScene to scenes
   if (0 == m_inBundle) {
@@ -186,7 +188,7 @@ void DmxPlayer::ProcessMessage( const osc::ReceivedMessage& m,
                   CuemsLogger::getLogger()->logWarning("OSC: Invalid universe_id in /frame command: " + std::to_string(universe_id));
                   return;
               }
-              std::cout << "OSC: /frame universe=" << universe_id << std::endl;
+              CuemsLogger::getLogger()->logDebug("OSC: /frame universe=" + std::to_string(universe_id));
               auto &frame_values = m_nextScene.m_sceneValues[universe_id];
               while (!stream.Eos()) {
                 int channel = -1;
@@ -229,8 +231,11 @@ void DmxPlayer::ProcessMessage( const osc::ReceivedMessage& m,
     } catch ( osc::Exception& e ) {
         // any parsing errors such as unexpected argument types, or
         // missing arguments get thrown as exceptions.
-        std::cout << "error while parsing message: "
-            << m.AddressPattern() << ": " << e.what() << "\n";
+        // Was a bare cout — a malformed OSC message is an error and must be
+        // visible to `cuems-logs -e`, not recorded as info on stdout.
+        CuemsLogger::getLogger()->logError(
+            std::string("error while parsing message: ")
+            + m.AddressPattern() + ": " + e.what() );
     }
 }
 
@@ -361,11 +366,13 @@ void DmxPlayer::processScenes() {
       // No more scenes to process now
       break;
     }
-    std::cout << "Processing scene transition at " << sc.m_mtcStart
-              << "  now = " << playHead
-              << "  fade = " << sc.m_fadeTime
-              << "  thread=" << std::this_thread::get_id()
-              << std::endl;
+    {
+      // Event-driven (per due scene), not per OLA tick — safe at info.
+      std::ostringstream oss;
+      oss << "Processing scene transition at " << sc.m_mtcStart
+          << "  now = " << playHead << "  fade = " << sc.m_fadeTime;
+      CuemsLogger::getLogger()->logInfo(oss.str());
+    }
     for (auto it_univ = sc.m_sceneValues.begin(); it_univ != sc.m_sceneValues.end();) {
       uint32_t univ_id = it_univ->first;
       bool remove = false;
@@ -375,7 +382,7 @@ void DmxPlayer::processScenes() {
         active_universe.m_id = univ_id;
         active_universe.m_state = 1;
         m_olaWrapper->GetClient()->FetchDMX(univ_id, ola::NewSingleCallback(&DmxPlayer::OnFetchDMX, this, univ_id));
-        std::cout << "fetch requested for universe " << univ_id << std::endl;
+        CuemsLogger::getLogger()->logDebug("fetch requested for universe " + std::to_string(univ_id));
       }
       else if (2 == active_universe.m_state) {
         // Buffer is fetched, ready to go
@@ -390,11 +397,21 @@ void DmxPlayer::processScenes() {
           trs.val1 = it_val->second;
           ++c;
         }
-        std::cout << "  set channels: " << c << std::endl;
+        CuemsLogger::getLogger()->logDebug("  set channels: " + std::to_string(c));
       }
       else if (3 == active_universe.m_state) {
-        std::cout << "Failed to fetch channels for universe " << univ_id
-                  << ", removing it" << std::endl;
+        // Rate-limited logError: state 3 = OLA fetch failed. With olad down
+        // this branch can recur inside the 10 ms OLA repeating timeout, and
+        // an unthrottled syslog() per occurrence would flood a real-time
+        // callback for the whole outage.
+        static time_t lastFetchFailLog = 0;
+        time_t now = time(nullptr);
+        if (now - lastFetchFailLog >= 5) {
+          lastFetchFailLog = now;
+          CuemsLogger::getLogger()->logError(
+            "Failed to fetch channels for universe " + std::to_string(univ_id)
+            + ", removing it" );
+        }
         remove = true;
       }
 
@@ -456,7 +473,9 @@ void DmxPlayer::updateActiveUniverses()
 
     if (univ.m_channelTransitions.empty()) {
       it = m_activeUniverses.erase(it);
-      std::cout << "removing universe " << univ.m_id << " from active universes (all done)" << std::endl;
+      CuemsLogger::getLogger()->logDebug(
+        "removing universe " + std::to_string(univ.m_id)
+        + " from active universes (all done)" );
     }
     else {
       ++it;

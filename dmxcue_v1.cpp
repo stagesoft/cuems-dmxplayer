@@ -59,8 +59,9 @@ void DmxCue_v1::initParser( void )
     catch (const XMLException& toCatch) {
         // Do your failure processing here
         std::string str = "Error initializing XML platform.";
-        std::cerr << str << endl;
-
+        // (No cerr echo: under systemd the logError below is the one copy
+        // that carries a real priority; the stderr line was a duplicate
+        // stamped info.)
         CuemsLogger::getLogger()->logError( str );
         CuemsLogger::getLogger()->logError( "Exiting with result code: " + std::to_string(CUEMS_EXIT_FAILED_XML_INIT) );
 
