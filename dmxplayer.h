@@ -19,6 +19,7 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 */
+// SPDX-FileContributor: Ion Reguera <ion@stagelab.coop>
 
 //////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////
@@ -42,6 +43,7 @@
 #include <iomanip>
 #include <mutex>
 #include <rtmidi/RtMidi.h>
+#include "dmxdayalign.h"
 
 #include <ola/DmxBuffer.h>
 #include <ola/client/ClientWrapper.h>
@@ -147,8 +149,16 @@ class DmxPlayer : public OscReceiver
         std::list<SceneTransitionInfo> m_scenes;              // SceneTransitionInfo sorted by MTC
         std::map<uint32_t, ActiveUniverse> m_activeUniverses; // universe_id -> ActiveUniverse
         SceneTransitionInfo m_nextScene;
-        std::mutex m_scenesMutex;     // protects m_scenes
+        // m_nextScene's absolute /mtc_time could not be placed in this
+        // process's MTC day yet (head not authoritative): it goes to
+        // m_pendingScenes, never into m_scenes raw (DmxDayAlign)
+        bool m_nextPending = false;
+        long int m_nextEngineMs = 0;
+        std::list<DmxDayAlign::Pending<SceneTransitionInfo>> m_pendingScenes;
+        std::mutex m_scenesMutex;     // protects m_scenes and m_pendingScenes
         std::mutex m_universesMutex; // protects m_activeUniverses
+        std::mutex m_dayLogMutex;     // protects m_dayKLogged
+        std::vector<long> m_dayKLogged;  // k values already logged (once per k)
 
     protected:
         static bool SendUniverseData(   DmxPlayer* dp);
@@ -158,6 +168,8 @@ class DmxPlayer : public OscReceiver
         void processScenes();
         void updateActiveUniverses();
         long int convertTime(const std::string_view &time);
+        void resolvePendingScenes();     // OLA thread, before processScenes()
+        void logDayShift(long k, long engineMs, long headMs);
 
         // Adaptive timer management
         void registerTimer(bool idle, bool fromCallback = false);
