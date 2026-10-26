@@ -137,8 +137,8 @@ TEST(DmxDayAlign, PendingWaitsThenGoesInSorted) {
     rep = DmxDayAlign::drainPending(pending, scenes, 600000, 4100, true, f);
     EXPECT_EQ(rep.resolved, 2);
     EXPECT_TRUE(pending.empty());
-    EXPECT_TRUE(rep.anyShifted);
-    EXPECT_EQ(rep.lastK, 1);
+    ASSERT_EQ(rep.shifts.size(), 1u);
+    EXPECT_EQ(rep.shifts[0].first, 1);
     EXPECT_TRUE(sortedStable(scenes));
     std::vector<int> ids;
     for (const auto& x : scenes) ids.push_back(x.id);
@@ -155,12 +155,92 @@ TEST(DmxDayAlign, NoUnresolvedWarningWithoutMtc) {
     EXPECT_EQ(rep.stillPending, 1);
 }
 
-// now / +rel never go through the conversion: relative to the play head, whatever its day.
-TEST(DmxDayAlign, NowAndRelativeUntouchedPastTwelveHours) {
-    EXPECT_EQ(DmxDayAlign::parseMtcTime("now").kind, DmxDayAlign::TimeKind::Now);
-    const auto rel = DmxDayAlign::parseMtcTime("+2");
-    EXPECT_EQ(rel.kind, DmxDayAlign::TimeKind::Relative);
-    EXPECT_EQ(13 * H + rel.ms, 13 * H + 2000);
+// now / +rel / start_offset never go through the conversion: relative to the
+// play head whatever its day, never pending even with no authoritative head.
+TEST(DmxDayAlign, BundleNowAndRelativeNeverConvertNorQueue) {
+    FakeHead noHead{false, 0};
+    DmxDayAlign::BundleStart b;
+    b.begin(13 * H);
+    EXPECT_FALSE(b.pending);
+    EXPECT_EQ(b.startMs, 13 * H) << "a bundle with no /mtc_time starts now";
+    b.mtcTime("+2", 13 * H, noHead);
+    EXPECT_FALSE(b.pending);
+    EXPECT_EQ(b.startMs, 13 * H + 2000);
+    b.mtcTime("now", 13 * H, noHead);
+    EXPECT_FALSE(b.pending);
+    EXPECT_EQ(b.startMs, 13 * H);
+    b.startOffset(13 * H, 1500);
+    EXPECT_FALSE(b.pending);
+    EXPECT_EQ(b.startMs, 13 * H + 1500);
+}
+
+// The bundle state across messages: a later relative time clears a pending
+// absolute one; flush puts the scene in exactly one of the two lists.
+TEST(DmxDayAlign, BundleFlushGoesToExactlyOneList) {
+    FakeHead f{false, 600000};
+    std::list<Scene> scenes;
+    std::list<DmxDayAlign::Pending<Scene>> pending;
+    std::size_t dropped = 0;
+
+    DmxDayAlign::BundleStart b;
+    b.begin(600000);
+    b.mtcTime("24:10:05", 600000, f);                 // no authoritative head: pending
+    ASSERT_TRUE(b.pending);
+    EXPECT_EQ(b.engineMs, DAY + 605000);
+    DmxDayAlign::flush(Scene{0, 1}, b, scenes, pending, 1000, dropped);
+    EXPECT_TRUE(scenes.empty()) << "never in the sorted list raw";
+    ASSERT_EQ(pending.size(), 1u);
+    EXPECT_EQ(pending.front().engineMs, DAY + 605000);
+
+    b.begin(600000);
+    b.mtcTime("24:10:05", 600000, f);
+    b.mtcTime("+1", 600000, f);                       // a later message in the same bundle
+    EXPECT_FALSE(b.pending);
+    DmxDayAlign::flush(Scene{0, 2}, b, scenes, pending, 1000, dropped);
+    ASSERT_EQ(scenes.size(), 1u);
+    EXPECT_EQ(scenes.front().m_mtcStart, 601000);
+    EXPECT_EQ(pending.size(), 1u);
+
+    f.authoritative = true;
+    b.begin(600000);
+    b.mtcTime("24:10:05", 600000, f);                 // authoritative: converted at once
+    EXPECT_FALSE(b.pending);
+    EXPECT_EQ(b.k, 1);
+    EXPECT_EQ(b.startMs, 605000);
+    DmxDayAlign::flush(Scene{0, 3}, b, scenes, pending, 1000, dropped);
+    EXPECT_TRUE(sortedStable(scenes));
+    EXPECT_EQ(dropped, 0u);
+}
+
+TEST(DmxDayAlign, PendingQueueIsCapped) {
+    FakeHead f{false, 0};
+    std::list<Scene> scenes;
+    std::list<DmxDayAlign::Pending<Scene>> pending;
+    std::size_t dropped = 0;
+    DmxDayAlign::BundleStart b;
+    for (int i = 0; i < (int)DmxDayAlign::MAX_PENDING + 5; ++i) {
+        b.begin(0);
+        b.mtcTime("1:00:00", 0, f);
+        DmxDayAlign::flush(Scene{0, i}, b, scenes, pending, i, dropped);
+    }
+    EXPECT_EQ(pending.size(), DmxDayAlign::MAX_PENDING);
+    EXPECT_EQ(dropped, 5u);
+    EXPECT_EQ(pending.front().scene.id, 5) << "the oldest are the ones dropped";
+}
+
+// One drain resolving scenes of two different days reports both k values.
+TEST(DmxDayAlign, DrainReportsEveryDistinctK) {
+    std::list<Scene> scenes;
+    std::list<DmxDayAlign::Pending<Scene>> pending;
+    pending.push_back({Scene{0, 1}, DAY + 605000, 0, false});   // k = 1
+    pending.push_back({Scene{0, 2}, DAY + 606000, 0, false});   // k = 1 again
+    pending.push_back({Scene{0, 3}, 605000 - DAY, 0, false});   // k = -1
+    FakeHead f{true, 600000};
+    const auto rep = DmxDayAlign::drainPending(pending, scenes, 600000, 0, true, f);
+    EXPECT_EQ(rep.resolved, 3);
+    ASSERT_EQ(rep.shifts.size(), 2u);
+    EXPECT_EQ(rep.shifts[0].first, 1);
+    EXPECT_EQ(rep.shifts[1].first, -1);
 }
 
 // Documented consequence: a small absolute time sent by a test tool

@@ -27,6 +27,8 @@
 #include <list>
 #include <string>
 #include <string_view>
+#include <utility>
+#include <vector>
 #include "mtcreceiver.h"
 
 namespace DmxDayAlign {
@@ -112,9 +114,7 @@ struct Pending {
 struct DrainReport {
     int resolved = 0;
     int stillPending = 0;
-    long lastK = 0;
-    bool anyShifted = false;            // a resolution with k != 0
-    long shiftedEngineMs = 0;
+    std::vector<std::pair<long, long>> shifts;   // distinct k != 0 -> an engine time with it
     int newlyUnresolved = 0;            // pending > UNRESOLVED_WARN_MS for the first time
     long oldestPendingMs = 0;
     int implausible = 0;                // resolved starts more than an hour ahead
@@ -124,6 +124,63 @@ struct DrainReport {
 // A start more than an hour ahead of the play head means a wrong day (or an
 // engine time far from now): worth one WARNING.
 inline bool implausibleStart(long startMs, long playHead) { return startMs > playHead + HOUR_MS; }
+
+// The start of the scene a top-level bundle is assembling (OSC thread only):
+// "now" at the bundle's start, then whatever its /mtc_time or /start_offset
+// says. An absolute engine time the head cannot place yet leaves it pending.
+struct BundleStart {
+    long startMs = 0;
+    bool pending = false;
+    long engineMs = 0;          // the absolute engine time, when pending
+    // the last absolute resolution in this bundle, for the caller's log lines
+    long k = 0;
+    bool implausible = false;
+
+    void begin(long playHead) { startMs = playHead; pending = false; k = 0; implausible = false; }
+
+    template <typename ToLocalDay>
+    void mtcTime(std::string_view s, long playHead, ToLocalDay&& toLocalDay)
+    {
+        const MtcTime t = parseMtcTime(s);
+        pending = false;
+        k = 0;
+        implausible = false;
+        if (t.kind == TimeKind::Now) {
+            startMs = playHead;
+        } else if (t.kind == TimeKind::Relative) {
+            startMs = playHead + t.ms;
+        } else if (resolveAbsolute(t.ms, playHead, toLocalDay, startMs, k)) {
+            engineMs = t.ms;
+            implausible = implausibleStart(startMs, playHead);
+        } else {
+            pending = true;
+            engineMs = t.ms;
+        }
+    }
+
+    void startOffset(long playHead, int ofs) { startMs = playHead + ofs; pending = false; k = 0; implausible = false; }
+};
+
+constexpr std::size_t MAX_PENDING = 256;
+
+// The assembled scene goes into the sorted list, or the pending queue when its
+// start is not placed yet (never into the sorted list raw). The queue is
+// capped: the oldest entries are dropped and counted in `dropped`.
+template <typename Scene>
+void flush(Scene&& scene, const BundleStart& b, std::list<Scene>& scenes,
+           std::list<Pending<Scene>>& pending, long nowMs, std::size_t& dropped)
+{
+    if (b.pending) {
+        pending.push_back({std::move(scene), b.engineMs, nowMs, false});
+        while (pending.size() > MAX_PENDING) {
+            pending.pop_front();
+            dropped++;
+        }
+    } else {
+        scene.m_mtcStart = b.startMs;
+        insertSorted(scenes, std::move(scene));
+    }
+}
 
 // Move every pending scene the head can now place into the sorted list.
 // `mtcRunning`: the unresolved warning only counts while MTC is running.
@@ -136,7 +193,10 @@ DrainReport drainPending(std::list<Pending<Scene>>& pending, std::list<Scene>& s
         long startMs = 0, k = 0;
         if (resolveAbsolute(it->engineMs, playHead, toLocalDay, startMs, k)) {
             it->scene.m_mtcStart = startMs;
-            if (k != 0) { rep.anyShifted = true; rep.lastK = k; rep.shiftedEngineMs = it->engineMs; }
+            if (k != 0 && std::none_of(rep.shifts.begin(), rep.shifts.end(),
+                                       [k](const std::pair<long, long>& s) { return s.first == k; })) {
+                rep.shifts.emplace_back(k, it->engineMs);
+            }
             if (implausibleStart(startMs, playHead)) { rep.implausible++; rep.implausibleStartMs = startMs; }
             insertSorted(scenes, std::move(it->scene));
             it = pending.erase(it);
