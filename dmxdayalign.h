@@ -23,6 +23,7 @@
 
 #include <algorithm>
 #include <charconv>
+#include <climits>
 #include <cmath>
 #include <list>
 #include <string>
@@ -138,8 +139,11 @@ struct BundleStart {
 
     void begin(long playHead) { startMs = playHead; pending = false; k = 0; implausible = false; }
 
+    // headMs: the MTC head the implausible check compares with. The play head
+    // is held at 0 while the player does not follow MTC, so the caller passes
+    // the receiver's head (defaults to playHead).
     template <typename ToLocalDay>
-    void mtcTime(std::string_view s, long playHead, ToLocalDay&& toLocalDay)
+    void mtcTime(std::string_view s, long playHead, ToLocalDay&& toLocalDay, long headMs = LONG_MIN)
     {
         const MtcTime t = parseMtcTime(s);
         pending = false;
@@ -151,7 +155,7 @@ struct BundleStart {
             startMs = playHead + t.ms;
         } else if (resolveAbsolute(t.ms, playHead, toLocalDay, startMs, k)) {
             engineMs = t.ms;
-            implausible = implausibleStart(startMs, playHead);
+            implausible = implausibleStart(startMs, headMs == LONG_MIN ? playHead : headMs);
         } else {
             pending = true;
             engineMs = t.ms;
@@ -186,8 +190,10 @@ void flush(Scene&& scene, const BundleStart& b, std::list<Scene>& scenes,
 // `mtcRunning`: the unresolved warning only counts while MTC is running.
 template <typename Scene, typename ToLocalDay>
 DrainReport drainPending(std::list<Pending<Scene>>& pending, std::list<Scene>& scenes,
-                         long playHead, long nowMs, bool mtcRunning, ToLocalDay&& toLocalDay)
+                         long playHead, long nowMs, bool mtcRunning, ToLocalDay&& toLocalDay,
+                         long headMs = LONG_MIN)
 {
+    const long ref = headMs == LONG_MIN ? playHead : headMs;   // see BundleStart::mtcTime
     DrainReport rep;
     for (auto it = pending.begin(); it != pending.end(); ) {
         long startMs = 0, k = 0;
@@ -197,7 +203,7 @@ DrainReport drainPending(std::list<Pending<Scene>>& pending, std::list<Scene>& s
                                        [k](const std::pair<long, long>& s) { return s.first == k; })) {
                 rep.shifts.emplace_back(k, it->engineMs);
             }
-            if (implausibleStart(startMs, playHead)) { rep.implausible++; rep.implausibleStartMs = startMs; }
+            if (implausibleStart(startMs, ref)) { rep.implausible++; rep.implausibleStartMs = startMs; }
             insertSorted(scenes, std::move(it->scene));
             it = pending.erase(it);
             rep.resolved++;

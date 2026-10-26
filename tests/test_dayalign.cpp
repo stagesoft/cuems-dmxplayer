@@ -253,6 +253,27 @@ TEST(DmxDayAlign, SmallAbsoluteTimePastTwelveHoursIsNextDay) {
     EXPECT_EQ(start, DAY + 5000);
 }
 
+// Rig 2026-10-26 (test2, S3 run): a scene sent before /mtcfollow, while the
+// play head is held at 0, was reported implausible against that 0. The check
+// compares with the MTC head instead.
+TEST(DmxDayAlign, ImplausibleUsesTheMtcHeadNotTheHeldPlayHead) {
+    FakeHead f{true, 84600000L};                                // head 23:30:00
+    DmxDayAlign::BundleStart b;
+    b.begin(0);
+    b.mtcTime("23:30:06.6", 0, f, 84600000L);                   // play head held at 0
+    EXPECT_FALSE(b.pending);
+    EXPECT_FALSE(b.implausible) << "6.6 s ahead of the MTC head";
+    b.mtcTime("23:30:06.6", 0, f);                              // without the head: the old check
+    EXPECT_TRUE(b.implausible);
+
+    std::list<Scene> scenes;
+    std::list<DmxDayAlign::Pending<Scene>> pending;
+    pending.push_back({Scene{0, 1}, 84606600L, 0, false});
+    const auto rep = DmxDayAlign::drainPending(pending, scenes, 0, 0, true, f, 84600000L);
+    EXPECT_EQ(rep.resolved, 1);
+    EXPECT_EQ(rep.implausible, 0);
+}
+
 TEST(DmxDayAlign, ImplausibleAndWarningRules) {
     EXPECT_FALSE(DmxDayAlign::implausibleStart(5000 + H, 5000));
     EXPECT_TRUE(DmxDayAlign::implausibleStart(5001 + H, 5000));

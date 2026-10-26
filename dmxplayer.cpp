@@ -227,13 +227,14 @@ void DmxPlayer::ProcessMessage( const osc::ReceivedMessage& m,
             m.ArgumentStream() >> str >> osc::EndMessage;
             // absolute: an engine time, converted into this process's MTC day
             // BEFORE max() and the sorted insert (24h wrap); now/+rel untouched
-            m_nextStart.mtcTime(std::string_view(str), playHead.load(), MtcReceiver::toLocalDay);
+            m_nextStart.mtcTime(std::string_view(str), playHead.load(), MtcReceiver::toLocalDay,
+                                MtcReceiver::mtcHead.load());
             if (!m_nextStart.pending && m_nextStart.k != 0) {
               logDayShift(m_nextStart.k, m_nextStart.engineMs, MtcReceiver::mtcHead.load());
             }
             if (m_nextStart.implausible) {
               CuemsLogger::getLogger()->logWarning("MTC day-align: implausible DMX scene start "
-                  + std::to_string(m_nextStart.startMs) + " ms, play head " + std::to_string(playHead.load())
+                  + std::to_string(m_nextStart.startMs) + " ms, MTC head " + std::to_string(MtcReceiver::mtcHead.load())
                   + " ms -- wrong MTC day, or an engine time far from now");
             }
           } else if ( (string)m.AddressPattern() == (OscReceiver::oscAddress + "/start_offset") ) {
@@ -271,13 +272,14 @@ void DmxPlayer::resolvePendingScenes()
     std::lock_guard guard(m_scenesMutex);
     if (m_pendingScenes.empty()) return;
     rep = DmxDayAlign::drainPending(m_pendingScenes, m_scenes, playHead.load(), steadyNowMs(),
-                                    mtcReceiver.isTimecodeRunning.load(), MtcReceiver::toLocalDay);
+                                    mtcReceiver.isTimecodeRunning.load(), MtcReceiver::toLocalDay,
+                                    MtcReceiver::mtcHead.load());
     m_pendingCount.store(m_pendingScenes.size());
   }
   for (const auto &[k, engineMs] : rep.shifts) logDayShift(k, engineMs, MtcReceiver::mtcHead.load());
   if (rep.implausible) {
     CuemsLogger::getLogger()->logWarning("MTC day-align: implausible DMX scene start "
-        + std::to_string(rep.implausibleStartMs) + " ms, play head " + std::to_string(playHead.load())
+        + std::to_string(rep.implausibleStartMs) + " ms, MTC head " + std::to_string(MtcReceiver::mtcHead.load())
         + " ms -- wrong MTC day, or an engine time far from now");
   }
   if (rep.newlyUnresolved) {
