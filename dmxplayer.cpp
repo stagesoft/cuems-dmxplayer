@@ -19,6 +19,7 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 */
+// SPDX-FileContributor: Ion Reguera <ion@stagelab.coop>
 
 //////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////
@@ -34,8 +35,15 @@
 #include <charconv>
 #include <sstream>
 #include <ctime>
+#include <algorithm>
 
 using namespace std;
+
+static long steadyNowMs()
+{
+  return chrono::duration_cast<chrono::milliseconds>(
+      chrono::steady_clock::now().time_since_epoch()).count();
+}
 
 ////////////////////////////////////////////
 // Initializing static class members
@@ -90,7 +98,7 @@ void DmxPlayer::ProcessBundle( const osc::ReceivedBundle& b,
 {
   // set 'now' MTC by default if it's a top-leven bundle;
   if (0 == m_inBundle) {
-    m_nextScene.m_mtcStart = playHead;
+    m_nextStart.begin(playHead);
   }
   ++m_inBundle;
   OscReceiver::ProcessBundle(b, remoteEndpoint);
@@ -103,15 +111,19 @@ void DmxPlayer::ProcessBundle( const osc::ReceivedBundle& b,
 
   // If it's a top-level bundle, add m_nextScene to scenes
   if (0 == m_inBundle) {
+    std::size_t dropped = 0;
     {
       std::lock_guard guard(m_scenesMutex);
-      auto r_it = m_scenes.rbegin();
-      for (; r_it != m_scenes.rend(); ++r_it) {
-        if (r_it->m_mtcStart <= m_nextScene.m_mtcStart) {
-          break;
-        }
-      }
-      m_scenes.insert(r_it.base(), std::move(m_nextScene));
+      // sorted in, or (a start not placed in this process's MTC day yet)
+      // queued for the OLA tick (resolvePendingScenes)
+      DmxDayAlign::flush(std::move(m_nextScene), m_nextStart, m_scenes, m_pendingScenes,
+                         steadyNowMs(), dropped);
+      m_pendingCount.store(m_pendingScenes.size());
+    }
+    if (dropped) {
+      CuemsLogger::getLogger()->logWarning("MTC day-align: pending DMX scene queue full ("
+          + std::to_string(DmxDayAlign::MAX_PENDING) + "), dropped the oldest "
+          + std::to_string(dropped));
     }
 
     // If on idle timer, wake up the SelectServer to switch to active (10ms).
@@ -158,6 +170,8 @@ void DmxPlayer::ProcessMessage( const osc::ReceivedMessage& m,
             {
                 std::lock_guard guard(m_scenesMutex);
                 m_scenes.clear();
+                m_pendingScenes.clear();
+                m_pendingCount.store(0);
             }
             {
                 std::lock_guard guard(m_universesMutex);
@@ -211,20 +225,22 @@ void DmxPlayer::ProcessMessage( const osc::ReceivedMessage& m,
           } else if ( (string)m.AddressPattern() == (OscReceiver::oscAddress + "/mtc_time") ) {
             const char *str = nullptr;
             m.ArgumentStream() >> str >> osc::EndMessage;
-            std::string_view start_time(str);
-            if ("now" == start_time) {
-              m_nextScene.m_mtcStart = playHead;
+            // absolute: an engine time, converted into this process's MTC day
+            // BEFORE max() and the sorted insert (24h wrap); now/+rel untouched
+            m_nextStart.mtcTime(std::string_view(str), playHead.load(), MtcReceiver::toLocalDay,
+                                MtcReceiver::mtcHead.load());
+            if (!m_nextStart.pending && m_nextStart.k != 0) {
+              logDayShift(m_nextStart.k, m_nextStart.engineMs, MtcReceiver::mtcHead.load());
             }
-            else if ('+' == start_time[0]) {
-              m_nextScene.m_mtcStart = playHead + convertTime(start_time.substr(1));
-            }
-            else {
-              m_nextScene.m_mtcStart = std::max(playHead.load(), convertTime(start_time));
+            if (m_nextStart.implausible) {
+              CuemsLogger::getLogger()->logWarning("MTC day-align: implausible DMX scene start "
+                  + std::to_string(m_nextStart.startMs) + " ms, MTC head " + std::to_string(MtcReceiver::mtcHead.load())
+                  + " ms -- wrong MTC day, or an engine time far from now");
             }
           } else if ( (string)m.AddressPattern() == (OscReceiver::oscAddress + "/start_offset") ) {
             int ofs = 0;
             m.ArgumentStream() >> ofs >> osc::EndMessage;
-            m_nextScene.m_mtcStart = playHead + ofs;
+            m_nextStart.startOffset(playHead.load(), ofs);
           }
         }
 
@@ -242,33 +258,49 @@ void DmxPlayer::ProcessMessage( const osc::ReceivedMessage& m,
 //////////////////////////////////////////////////////////
 long int DmxPlayer::convertTime(const std::string_view &time)
 {
-  // Time format: [[h:]m:]s
-  double seconds = 0;
-  int minutes = 0;
-  int hours = 0;
-  const char* p = time.data();
+  // Time format: [[h:]m:]s (moved, unchanged, to DmxDayAlign for the tests)
+  return DmxDayAlign::convertTime(time);
+}
 
-  int L = time.size() - 1;
-  auto j = time.rfind(':', L) + 1;
-  //std::cout << " DmxPlayer::convertTime: s = " << time.substr(j, L - j)
-  //  << " j=" << j << " L=" << L << std::endl;
-  std::from_chars(p+j, p+L+1, seconds);
-  if (1 < j) {
-    L = j - 2;
-    j = time.rfind(':', L) + 1;
-    //std::cout << "    m = " << time.substr(j, L - j + 1)
-    //  << " j=" << j << " L=" << L << std::endl;
-    std::from_chars(p+j, p+L+1, minutes);
+//////////////////////////////////////////////////////////
+// Pending scenes whose absolute start this process can now place in its MTC
+// day go into the sorted list. OLA thread, before processScenes().
+void DmxPlayer::resolvePendingScenes()
+{
+  DmxDayAlign::DrainReport rep;
+  {
+    std::lock_guard guard(m_scenesMutex);
+    if (m_pendingScenes.empty()) return;
+    rep = DmxDayAlign::drainPending(m_pendingScenes, m_scenes, playHead.load(), steadyNowMs(),
+                                    mtcReceiver.isTimecodeRunning.load(), MtcReceiver::toLocalDay,
+                                    MtcReceiver::mtcHead.load());
+    m_pendingCount.store(m_pendingScenes.size());
   }
-  if (1 < j) {
-    L = j - 2;
-    j = time.rfind(':', L) + 1;
-    //std::cout << "    h = " << time.substr(j, L - j + 1)
-    //  << " j=" << j << " L=" << L << std::endl;
-    std::from_chars(p+j, p+L+1, hours);
+  for (const auto &[k, engineMs] : rep.shifts) logDayShift(k, engineMs, MtcReceiver::mtcHead.load());
+  if (rep.implausible) {
+    CuemsLogger::getLogger()->logWarning("MTC day-align: implausible DMX scene start "
+        + std::to_string(rep.implausibleStartMs) + " ms, MTC head " + std::to_string(MtcReceiver::mtcHead.load())
+        + " ms -- wrong MTC day, or an engine time far from now");
   }
-  //std::cout << "  conversion result: " << hours << ":" << minutes << ":" << seconds << std::endl;
-  return std::round(seconds * 1000 + 60*1000 * minutes + 3600*1000 * hours);
+  if (rep.newlyUnresolved) {
+    CuemsLogger::getLogger()->logWarning("MTC day-align: " + std::to_string(rep.newlyUnresolved)
+        + " DMX scene(s) unresolved for " + std::to_string(rep.oldestPendingMs)
+        + " ms with MTC running (MTC head not authoritative yet); they wait");
+  }
+}
+
+//////////////////////////////////////////////////////////
+// The day-realign line, once per k value per process.
+void DmxPlayer::logDayShift(long k, long engineMs, long headMs)
+{
+  std::lock_guard guard(m_dayLogMutex);
+  if (std::find(m_dayKLogged.begin(), m_dayKLogged.end(), k) != m_dayKLogged.end()) return;
+  m_dayKLogged.push_back(k);
+  const std::string line = DmxDayAlign::realignLine(k, engineMs, headMs);
+  if (DmxDayAlign::realignIsWarning(k, headMs))
+    CuemsLogger::getLogger()->logWarning(line);
+  else
+    CuemsLogger::getLogger()->logInfo(line);
 }
 
 //////////////////////////////////////////////////////////
@@ -302,6 +334,7 @@ bool DmxPlayer::SendUniverseData(DmxPlayer* dp) {
     // (e.g. "press Go" without timecode — scene is applied immediately)
     if (!dp->followMTC) {
       dp->playHead = 0;
+      dp->resolvePendingScenes();
       dp->processScenes();
       dp->updateActiveUniverses();
     }
@@ -332,6 +365,7 @@ bool DmxPlayer::SendUniverseData(DmxPlayer* dp) {
 
           dp->playHead = dp->mtcReceiver.estimatedCurrentHead()
                        + dp->m_outputLatencyMs.load();
+          dp->resolvePendingScenes();
           dp->processScenes();
           dp->updateActiveUniverses();
       }
@@ -510,7 +544,8 @@ void DmxPlayer::registerTimer(bool idle, bool fromCallback) {
 
 //////////////////////////////////////////////////////////
 bool DmxPlayer::hasActiveWork() const {
-    return !m_scenes.empty() || !m_activeUniverses.empty();
+    // a scene waiting for its MTC day is work too: resolve it on the 10 ms tick
+    return !m_scenes.empty() || m_pendingCount.load() != 0 || !m_activeUniverses.empty();
 }
 
 //////////////////////////////////////////////////////////
@@ -582,6 +617,10 @@ void DmxPlayer::purgeStaleScenes() {
         m_scenes.remove_if([now](const SceneTransitionInfo &sc) {
             return sc.m_mtcStart < now - 100;
         });
+        // scenes waiting for their MTC day were queued during the downtime
+        // too; resolved now they would fire at once as "past"
+        m_pendingScenes.clear();
+        m_pendingCount.store(0);
     }
 
     {
@@ -605,6 +644,8 @@ void DmxPlayer::run( void ) {
     CuemsLogger::getLogger()->logInfo(
         "DMX output latency compensation = "
         + std::to_string(m_outputLatencyMs.load()) + " ms");
+    // absolute engine /mtc_time values are converted into this process's MTC day
+    CuemsLogger::getLogger()->logInfo("MTC day-align: on (12 h rule, ext)");
 
     unsigned int reconnectDelay = CuemsConstants::OLA_RECONNECT_INITIAL_DELAY_MS;
 

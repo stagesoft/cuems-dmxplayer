@@ -1,3 +1,4 @@
+# SPDX-FileContributor: Ion Reguera <ion@stagelab.coop>
 cmake_minimum_required(VERSION 3.20)
 project(dmxplayer VERSION 0.0)
 
@@ -6,6 +7,13 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 
 #include_directories("")
 add_compile_options(-Wall -Wextra)
+
+# Unit tests (off by default: the package build is unchanged)
+option(BUILD_TESTS "Build the unit tests (tests/)" OFF)
+if(BUILD_TESTS)
+  # the tests drive mtcreceiver's head-authoritative flag
+  set(MTCRECV_TESTING ON CACHE BOOL "Expose mtcreceiver test-only helpers" FORCE)
+endif()
 
 # Subdirectories
 add_subdirectory(oscreceiver)
@@ -33,3 +41,8 @@ target_compile_definitions(mtcreceiver PUBLIC HAVE_CUEMS_LOGGER)
 install(TARGETS cuems-dmxplayer
         RUNTIME DESTINATION bin
 )
+
+if(BUILD_TESTS)
+  enable_testing()
+  add_subdirectory(tests)
+endif()

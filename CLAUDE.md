@@ -1,3 +1,5 @@
+<!-- SPDX-FileContributor: Ion Reguera <ion@stagelab.coop> -->
+
 # cuems-dmxplayer
 
 Part of the **CUEMS** ecosystem — see the [`cuems-RELATIONS`](https://github.com/stagesoft/cuems-RELATIONS) repo for the system index, architecture diagram, and protocol/port map.
@@ -77,7 +79,23 @@ Requires OLA daemon (`olad`) running.
 
 ## Testing
 
-`test/send_dmx_osc.py` is a Python script for sending OSC test messages. No automated test suite exists.
+`test/send_dmx_osc.py` is a Python script for sending OSC test messages.
+
+Unit tests (gtest) cover the OLA-free logic in `dmxdayalign.h`: `cmake -DBUILD_TESTS=ON ..`
+builds `tests/dmxplayer_tests` (off by default, so the package build is unchanged). Build on
+casas, run on a test box (.111), never on casas.
+
+**Absolute `/mtc_time` is converted into this process's MTC day (24 h wrap).** The engine stamps
+it in its own extended domain; this long-lived daemon counts the wraps it has seen itself, and the
+two differ after a STOP at wire 23–24 h or 0–1 h after a real wrap, or after a node-engine restart
+past 24 h. `MtcReceiver::toLocalDay` (nearest day, 12 h rule) runs before `max(playHead, ·)` and the
+sorted insert; until the MTC head is authoritative the scene waits in `m_pendingScenes` (never in
+`m_scenes` raw) and the OLA tick resolves it. `now`, `+rel` and `/start_offset` are untouched.
+Journal: `MTC day-align: on (12 h rule, ext)` at start, `MTC day realign k=…` once per k (WARNING
+only for k < 0 with the head still in day 0), implausible start > 1 h ahead, unresolved > 2 s.
+Consequence for test tools: a small absolute time (e.g. `send_dmx_osc.py`) sent while the head is
+past 12 h is read as the next day. Plan: cuems-RELATIONS
+`Plans/2026-10-25-mtc-day-align-24h-wrap.md` step 7.
 
 ## Error codes
 
